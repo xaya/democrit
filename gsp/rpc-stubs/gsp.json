@@ -1,0 +1,26 @@
+[
+  {
+    "name": "stop",
+    "params": {}
+  },
+  {
+    "name": "getcurrentstate",
+    "params": {},
+    "returns": {}
+  },
+  {
+    "name": "getpendingstate",
+    "params": {},
+    "returns": {}
+  },
+
+  {
+    "name": "checktrade",
+    "params":
+      {
+        "name": "foo",
+        "tradeid": "bar"
+      },
+    "returns": "state"
+  }
+]

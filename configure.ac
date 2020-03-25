@@ -25,12 +25,14 @@ CXXFLAGS+=" -DGLOG_NO_ABBREVIATED_SEVERITIES"
 
 # Public dependencies exposed in the headers.
 AX_PKG_CHECK_MODULES([JSON], [jsoncpp], [])
+AX_PKG_CHECK_MODULES([XAYAGAME], [libxayautil libxayagame], [])
 
 # Private dependencies for the library parts.
-AX_PKG_CHECK_MODULES([XAYAGAME], [], [libxayautil libxayagame])
+AX_PKG_CHECK_MODULES([SQLITE], [], [sqlite3])
 AX_PKG_CHECK_MODULES([GLOG], [], [libglog])
 
 # Private dependencies for tests and binaries only.
+PKG_CHECK_MODULES([JSONRPCCPPSERVER], [libjsonrpccpp-server])
 PKG_CHECK_MODULES([GFLAGS], [gflags])
 PKG_CHECK_MODULES([GTEST], [gmock gtest_main])
 
