@@ -21,6 +21,7 @@
 
 #include "pending.hpp"
 
+#include <xayagame/game.hpp>
 #include <xayagame/sqlitegame.hpp>
 
 #include <json/json.h>
@@ -59,6 +60,27 @@ protected:
                     const Json::Value& blockData) override;
 
   Json::Value GetStateAsJson (const xaya::SQLiteDatabase& db) override;
+
+public:
+
+  /**
+   * Possible state of a trade.
+   */
+  enum class TradeState
+  {
+    /** The trade has not been seen anywhere on the network yet.  */
+    UNKNOWN,
+    /** The trade's atomic transaction is pending in the mempool.  */
+    PENDING,
+    /** The trade's atomic transaction has been confirmed.  */
+    CONFIRMED,
+  };
+
+  /**
+   * Queries for the state of the trade with given seller name and trade ID.
+   */
+  TradeState CheckTrade (const xaya::Game& g, const std::string& name,
+                         const std::string& tradeId);
 
 };
 

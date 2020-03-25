@@ -20,6 +20,7 @@
 
 #include "game.hpp"
 #include "pending.hpp"
+#include "rpcserver.hpp"
 
 #include <xayagame/defaultmain.hpp>
 
@@ -44,6 +45,34 @@ DEFINE_int32 (enable_pruning, -1,
 DEFINE_string (datadir, "",
                "base data directory for state data"
                " (will be extended by 'dem' and the chain)");
+
+class InstanceFactory : public xaya::CustomisedInstanceFactory
+{
+
+private:
+
+  /**
+   * Reference to the PXLogic instance.  This is needed to construct the
+   * RPC server.
+   */
+  dem::DemGame& logic;
+
+public:
+
+  explicit InstanceFactory (dem::DemGame& l)
+    : logic(l)
+  {}
+
+  std::unique_ptr<xaya::RpcServerInterface>
+  BuildRpcServer (xaya::Game& game,
+                  jsonrpc::AbstractServerConnector& conn) override
+  {
+    std::unique_ptr<xaya::RpcServerInterface> res;
+    res.reset (new xaya::WrappedRpcServer<dem::RpcServer> (game, logic, conn));
+    return res;
+  }
+
+};
 
 } // anonymous namespace
 
@@ -78,11 +107,12 @@ main (int argc, char** argv)
   config.EnablePruning = FLAGS_enable_pruning;
   config.DataDirectory = FLAGS_datadir;
 
+  dem::DemGame logic;
+  InstanceFactory instanceFact(logic);
+  config.InstanceFactory = &instanceFact;
+
   dem::PendingMoves pending;
   config.PendingMoves = &pending;
 
-  dem::DemGame logic;
-  const int res = xaya::SQLiteMain (config, "dem", logic);
-
-  return res;
+  return xaya::SQLiteMain (config, "dem", logic);
 }

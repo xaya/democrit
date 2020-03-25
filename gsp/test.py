@@ -38,6 +38,11 @@ class DemGspTest (XayaGameTest):
     time.sleep (0.05)
     self.assertEqual (self.getPendingState (), expected)
 
+  def expectState (self, name, tradeId, state):
+    time.sleep (0.05)
+    self.assertEqual (self.rpc.game.checktrade (name=name, tradeid=tradeId),
+                      state)
+
   def run (self):
     self.collectPremine ()
     # For some reason we have to split the single premine coin into
@@ -50,6 +55,7 @@ class DemGspTest (XayaGameTest):
     self.generate (1)
     self.expectGameState ({})
     self.expectPending ({})
+    self.expectState ("foo", "c", "unknown")
 
     self.mainLogger.info ("Sending some basic moves...")
     self.sendMove ("foo", 42)
@@ -61,12 +67,16 @@ class DemGspTest (XayaGameTest):
       "foo": ["c"],
       "baz": ["b"],
     })
+    self.expectState ("foo", "c", "pending")
     self.generate (1)
     self.expectPending ({})
+    self.expectState ("foo", "a", "unknown")
     self.sendMove ("foo", {"t": "a"})
     self.expectPending ({
       "foo": ["a"],
     })
+    self.expectState ("foo", "a", "pending")
+    self.expectState ("foo", "c", "confirmed")
     self.generate (1)
     self.expectGameState ({
       "foo": ["a", "c"],
@@ -82,6 +92,7 @@ class DemGspTest (XayaGameTest):
       "foo": ["c"],
       "baz": ["b"],
     })
+    self.expectState ("foo", "c", "confirmed")
     self.generate (1)
     self.expectGameState ({
       "foo": ["a", "c"],
@@ -89,10 +100,13 @@ class DemGspTest (XayaGameTest):
     })
 
     self.mainLogger.info ("Same ID with another name...")
+    self.expectState ("bar", "a", "unknown")
     self.sendMove ("bar", {"t": "a"})
     self.sendMove ("bar", {"t": "b"})
     self.sendMove ("bar", {"t": "c"})
     self.sendMove ("foo", {"t": "b"})
+    self.expectState ("foo", "a", "confirmed")
+    self.expectState ("bar", "a", "pending")
     self.expectPending ({
       "foo": ["b"],
       "bar": ["a", "b", "c"],
@@ -103,6 +117,8 @@ class DemGspTest (XayaGameTest):
       "bar": ["a", "b", "c"],
       "baz": ["b"],
     })
+    self.expectState ("foo", "a", "confirmed")
+    self.expectState ("bar", "a", "confirmed")
 
     self.mainLogger.info ("Testing reorg...")
     self.generate (20)
@@ -113,9 +129,13 @@ class DemGspTest (XayaGameTest):
       "foo": ["c"],
       "baz": ["b"],
     })
+    self.expectState ("foo", "a", "unknown")
+    self.expectState ("foo", "c", "confirmed")
     self.sendMove ("foo", {"t": "x"})
     self.generate (1)
     self.sendMove ("baz", {"t": "y"})
+    self.expectState ("foo", "x", "confirmed")
+    self.expectState ("baz", "y", "pending")
     self.expectPending ({
       "baz": ["y"],
     })
@@ -127,6 +147,10 @@ class DemGspTest (XayaGameTest):
     self.rpc.xaya.reconsiderblock (reorgBlk)
     self.expectGameState (oldState)
     self.expectPending ({})
+    self.expectState ("foo", "x", "unknown")
+    self.expectState ("baz", "y", "unknown")
+    self.expectState ("foo", "a", "confirmed")
+    self.expectState ("bar", "a", "confirmed")
 
 
 if __name__ == "__main__":

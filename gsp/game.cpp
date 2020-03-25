@@ -180,4 +180,68 @@ DemGame::GetStateAsJson (const xaya::SQLiteDatabase& db)
   return res;
 }
 
+DemGame::TradeState
+DemGame::CheckTrade (const xaya::Game& g, const std::string& name,
+                     const std::string& tradeId)
+{
+  /* Checking the pending and confirmed state is done without locking the
+     GSP in-between, so in theory there could be race conditions that change
+     the state between the two lookups.  By checking the pending state first
+     and the on-chain state second, we minimise the impact this has:
+
+     If a pending move comes in between the two checks, then we will simply
+     return "unknown" just as if we had locked the state immediately and not
+     seen the pending move yet.
+
+     If a block is attached, then we will (most likely) see the move already
+     as pending but just not in the confirmed state, and thus return "pending".
+     This is again just what would have happened with a full lock and/or
+     if the RPC method had been called a tiny bit earlier.
+
+     Only if a block is *detached* between the calls will there be an unexpected
+     result:  Then the move is not in the pending state (because it was
+     confirmed) but also no longer in the on-chain state, so that we return
+     "unknown" even though the result should be "pending".  But this is a
+     highly unlikely situation, and even then the result is not a big deal
+     in practice.  */
+
+  const Json::Value pending = g.GetPendingJsonState ()["pending"];
+  const Json::Value confirmed = GetCustomStateData (g, "data",
+      [&name, &tradeId] (const xaya::SQLiteDatabase& db)
+      {
+        auto* stmt = db.PrepareRo (R"(
+          SELECT COUNT(*)
+            FROM `trades`
+            WHERE `seller_name` = ?1 AND `seller_id` = ?2
+        )");
+        BindString (stmt, 1, name);
+        BindString (stmt, 2, tradeId);
+
+        CHECK_EQ (sqlite3_step (stmt), SQLITE_ROW);
+        const int cnt = sqlite3_column_int (stmt, 0);
+        CHECK_GE (cnt, 0);
+        CHECK_LE (cnt, 1);
+        CHECK_EQ (sqlite3_step (stmt), SQLITE_DONE);
+
+        return cnt > 0;
+      })["data"];
+
+  CHECK (pending.isObject ());
+  CHECK (confirmed.isBool ());
+
+  if (confirmed.asBool ())
+    return TradeState::CONFIRMED;
+
+  if (pending.isMember (name))
+    {
+      const auto& arr = pending[name];
+      CHECK (arr.isArray ());
+      for (const auto& entry : arr)
+        if (entry.asString () == tradeId)
+          return TradeState::PENDING;
+    }
+
+  return TradeState::UNKNOWN;
+}
+
 } // namespace dem
