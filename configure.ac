@@ -28,6 +28,7 @@ AX_PKG_CHECK_MODULES([JSON], [jsoncpp], [])
 
 # Private dependencies for the library parts.
 AX_PKG_CHECK_MODULES([XAYAGAME], [], [libxayautil libxayagame])
+AX_PKG_CHECK_MODULES([SQLITE], [], [sqlite3])
 AX_PKG_CHECK_MODULES([GLOG], [], [libglog])
 
 # Private dependencies for tests and binaries only.

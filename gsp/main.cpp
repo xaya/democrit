@@ -18,10 +18,33 @@
 
 #include "config.h"
 
+#include "game.hpp"
+
+#include <xayagame/defaultmain.hpp>
+
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include <cstdlib>
+#include <iostream>
+
+namespace
+{
+
+DEFINE_string (xaya_rpc_url, "",
+               "URL at which Xaya Core's JSON-RPC interface is available");
+DEFINE_int32 (game_rpc_port, 0,
+              "the port at which the GSP's JSON-RPC server will be started"
+              " (if non-zero)");
+
+DEFINE_int32 (enable_pruning, -1,
+              "if non-negative (including zero), old undo data will be pruned"
+              " and only as many blocks as specified will be kept");
+
+DEFINE_string (datadir, "",
+               "base data directory for state data"
+               " (will be extended by 'dem' and the chain)");
+
+} // anonymous namespace
 
 int
 main (int argc, char** argv)
@@ -32,7 +55,30 @@ main (int argc, char** argv)
   gflags::SetVersionString (PACKAGE_VERSION);
   gflags::ParseCommandLineFlags (&argc, &argv, true);
 
-  LOG (INFO) << "Not doing anything yet";
+  if (FLAGS_xaya_rpc_url.empty ())
+    {
+      std::cerr << "Error: --xaya_rpc_url must be set" << std::endl;
+      return EXIT_FAILURE;
+    }
 
-  return EXIT_SUCCESS;
+  if (FLAGS_datadir.empty ())
+    {
+      std::cerr << "Error: --datadir must be specified" << std::endl;
+      return EXIT_FAILURE;
+    }
+
+  xaya::GameDaemonConfiguration config;
+  config.XayaRpcUrl = FLAGS_xaya_rpc_url;
+  if (FLAGS_game_rpc_port != 0)
+    {
+      config.GameRpcServer = xaya::RpcServerType::HTTP;
+      config.GameRpcPort = FLAGS_game_rpc_port;
+    }
+  config.EnablePruning = FLAGS_enable_pruning;
+  config.DataDirectory = FLAGS_datadir;
+
+  dem::DemGame logic;
+  const int res = xaya::SQLiteMain (config, "dem", logic);
+
+  return res;
 }
