@@ -22,6 +22,7 @@ from xayagametest.testcase import XayaGameTest
 
 import os
 import os.path
+import time
 
 
 class DemGspTest (XayaGameTest):
@@ -32,6 +33,10 @@ class DemGspTest (XayaGameTest):
       top_builddir = ".."
     binary = os.path.join (top_builddir, "gsp", "democrit-gsp")
     super (DemGspTest, self).__init__ ("dem", binary)
+
+  def expectPending (self, expected):
+    time.sleep (0.05)
+    self.assertEqual (self.getPendingState (), expected)
 
   def run (self):
     self.collectPremine ()
@@ -44,6 +49,7 @@ class DemGspTest (XayaGameTest):
     self.rpc.xaya.sendmany ("", sendTo)
     self.generate (1)
     self.expectGameState ({})
+    self.expectPending ({})
 
     self.mainLogger.info ("Sending some basic moves...")
     self.sendMove ("foo", 42)
@@ -51,8 +57,16 @@ class DemGspTest (XayaGameTest):
     self.sendMove ("baz", {"t": 42})
     self.sendMove ("foo", {"t": "c"})
     self.sendMove ("baz", {"t": "b", "x": "ignored"})
+    self.expectPending ({
+      "foo": ["c"],
+      "baz": ["b"],
+    })
     self.generate (1)
+    self.expectPending ({})
     self.sendMove ("foo", {"t": "a"})
+    self.expectPending ({
+      "foo": ["a"],
+    })
     self.generate (1)
     self.expectGameState ({
       "foo": ["a", "c"],
@@ -62,7 +76,12 @@ class DemGspTest (XayaGameTest):
 
     self.mainLogger.info ("Duplicate IDs are just ignored...")
     self.sendMove ("foo", {"t": "c"})
+    self.sendMove ("foo", {"t": "c"})
     self.sendMove ("baz", {"t": "b"})
+    self.expectPending ({
+      "foo": ["c"],
+      "baz": ["b"],
+    })
     self.generate (1)
     self.expectGameState ({
       "foo": ["a", "c"],
@@ -74,6 +93,10 @@ class DemGspTest (XayaGameTest):
     self.sendMove ("bar", {"t": "b"})
     self.sendMove ("bar", {"t": "c"})
     self.sendMove ("foo", {"t": "b"})
+    self.expectPending ({
+      "foo": ["b"],
+      "bar": ["a", "b", "c"],
+    })
     self.generate (1)
     self.expectGameState ({
       "foo": ["a", "b", "c"],
@@ -92,6 +115,10 @@ class DemGspTest (XayaGameTest):
     })
     self.sendMove ("foo", {"t": "x"})
     self.generate (1)
+    self.sendMove ("baz", {"t": "y"})
+    self.expectPending ({
+      "baz": ["y"],
+    })
     self.expectGameState ({
       "foo": ["c", "x"],
       "baz": ["b"],
@@ -99,6 +126,7 @@ class DemGspTest (XayaGameTest):
 
     self.rpc.xaya.reconsiderblock (reorgBlk)
     self.expectGameState (oldState)
+    self.expectPending ({})
 
 
 if __name__ == "__main__":

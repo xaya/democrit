@@ -103,6 +103,24 @@ DemGame::InitialiseState (xaya::SQLiteDatabase& db)
   /* We start with an empty set of trades.  */
 }
 
+bool
+DemGame::ParseMove (const Json::Value& mv, std::string& name,
+                    std::string& tradeId)
+{
+  name = mv["name"].asString ();
+  const auto& mvData = mv["move"];
+
+  if (!mvData.isObject ())
+    return false;
+
+  const auto& tradeIdVal = mvData["t"];
+  if (!tradeIdVal.isString ())
+    return false;
+  tradeId = tradeIdVal.asString ();
+
+  return true;
+}
+
 void
 DemGame::UpdateState (xaya::SQLiteDatabase& db, const Json::Value& blockData)
 {
@@ -114,33 +132,22 @@ DemGame::UpdateState (xaya::SQLiteDatabase& db, const Json::Value& blockData)
 
   for (const auto& entry : blockData["moves"])
     {
-      const std::string name = entry["name"].asString ();
-      const std::string txid = entry["txid"].asString ();
-      const auto& mvData = entry["move"];
-
-      if (!mvData.isObject ())
+      std::string name, tradeId;
+      if (!ParseMove (entry, name, tradeId))
         {
-          LOG (WARNING) << "Invalid move data for " << name << ": " << mvData;
+          LOG (WARNING) << "Invalid move data: " << entry;
           continue;
         }
-
-      const auto& tradeId = mvData["t"];
-      if (!tradeId.isString ())
-        {
-          LOG (WARNING) << "Invalid move data for " << name << ": " << mvData;
-          continue;
-        }
-      const std::string tradeIdStr = tradeId.asString ();
 
       LOG (INFO)
           << "Finished trade:\n"
-          << "  Transaction: " << txid << "\n"
+          << "  Transaction: " << entry["txid"].asString () << "\n"
           << "  Seller name: " << name << "\n"
-          << "  Seller ID: " << tradeIdStr;
+          << "  Seller ID: " << tradeId;
 
       sqlite3_reset (stmt);
       BindString (stmt, 1, name);
-      BindString (stmt, 2, tradeIdStr);
+      BindString (stmt, 2, tradeId);
       CHECK_EQ (sqlite3_step (stmt), SQLITE_DONE);
     }
 }

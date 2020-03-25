@@ -19,6 +19,8 @@
 #ifndef DEMOCRIT_GSP_GAME_HPP
 #define DEMOCRIT_GSP_GAME_HPP
 
+#include "pending.hpp"
+
 #include <xayagame/sqlitegame.hpp>
 
 #include <json/json.h>
@@ -34,6 +36,17 @@ namespace dem
  */
 class DemGame : public xaya::SQLiteGame
 {
+
+private:
+
+  /**
+   * Tries to parse and validate a move from the notification JSON object.
+   * This is also used for pending moves.
+   */
+  static bool ParseMove (const Json::Value& mv, std::string& name,
+                         std::string& tradeId);
+
+  friend class dem::PendingMoves;
 
 protected:
 

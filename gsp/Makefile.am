@@ -6,9 +6,11 @@ libgsp_la_CXXFLAGS = \
 libgsp_la_LIBADD = \
   $(JSON_LIBS) $(XAYAGAME_LIBS) $(SQLITE_LIBS) $(GLOG_LIBS)
 libgsp_la_SOURCES = \
-  game.cpp
+  game.cpp \
+  pending.cpp
 noinst_HEADERS = \
-  game.hpp
+  game.hpp \
+  pending.hpp
 
 democrit_gsp_CXXFLAGS = \
   $(GLOGS_CFLAGS) $(GFLAGS_CFLAGS)

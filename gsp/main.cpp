@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include "game.hpp"
+#include "pending.hpp"
 
 #include <xayagame/defaultmain.hpp>
 
@@ -76,6 +77,9 @@ main (int argc, char** argv)
     }
   config.EnablePruning = FLAGS_enable_pruning;
   config.DataDirectory = FLAGS_datadir;
+
+  dem::PendingMoves pending;
+  config.PendingMoves = &pending;
 
   dem::DemGame logic;
   const int res = xaya::SQLiteMain (config, "dem", logic);
