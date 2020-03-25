@@ -16,3 +16,6 @@ democrit_gsp_LDADD = \
   $(builddir)/libgsp.la \
   $(GLAGS_LIBS) $(GFLAGS_LIBS)
 democrit_gsp_SOURCES = main.cpp
+
+EXTRA_DIST = test.py
+TESTS = test.py
