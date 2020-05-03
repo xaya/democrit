@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 #   Democrit - atomic trades for XAYA games
 #   Copyright (C) 2020  Autonomous Worlds Ltd
