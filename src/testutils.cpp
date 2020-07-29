@@ -49,15 +49,16 @@ GetServerConfig ()
 }
 
 gloox::JID
-GetTestJid (const unsigned n)
+GetTestJid (const unsigned n, const std::string& res)
 {
   const auto& cfg = GetServerConfig ();
 
-  gloox::JID res;
-  res.setUsername (cfg.accounts[n].name);
-  res.setServer (cfg.server);
+  gloox::JID jid;
+  jid.setUsername (cfg.accounts[n].name);
+  jid.setServer (cfg.server);
+  jid.setResource (res);
 
-  return res;
+  return jid;
 }
 
 std::string

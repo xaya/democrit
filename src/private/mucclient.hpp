@@ -87,10 +87,18 @@ private:
   bool joining;
 
   /**
+   * Maps in-room nicknames to the corresponding full JIDs.  We need that
+   * so that we can know who a MUC message was "really" from, as we use
+   * the full JIDs (which e.g. may be XID-authenticated by the server)
+   * for identifying room participants.
+   */
+  std::map<std::string, gloox::JID> nickToJid;
+
+  /**
    * Mutex used to lock for this instance (in particular, for syncing the
    * joining / disconnecting things).
    */
-  std::mutex mut;
+  mutable std::mutex mut;
 
   /**
    * Disconnect asynchronously.  This can be done also from inside
@@ -98,6 +106,12 @@ private:
    * start a disconnect in the disconnecter thread.
    */
   void DisconnectAsync ();
+
+  /**
+   * Resolves an in-room nick name to the corresponding full JID.
+   * Returns false if we do not know that nick.
+   */
+  bool ResolveNickname (const std::string& nick, gloox::JID& jid) const;
 
   void handleMUCError (gloox::MUCRoom* r, gloox::StanzaError) override;
   bool handleMUCRoomCreation (gloox::MUCRoom* r) override;
@@ -132,10 +146,13 @@ protected:
 
   /**
    * Handler called for all published messages (not including private ones)
-   * on the MUC channel.  Subclasses can override it to process them.
+   * on the MUC channel, at least when we can identify the full JID of the
+   * sender from their nick.
+   *
+   * Subclasses can override it to process them.
    */
   virtual void
-  HandleMessage (const gloox::Message& msg)
+  HandleMessage (const gloox::JID& sender, const gloox::Message& msg)
   {}
 
 public:

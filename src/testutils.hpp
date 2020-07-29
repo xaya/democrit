@@ -68,8 +68,9 @@ const ServerConfiguration& GetServerConfig ();
 
 /**
  * Returns the JID of the n-th test account from the selected server config.
+ * Optinally adds a specified resource.
  */
-gloox::JID GetTestJid (unsigned n);
+gloox::JID GetTestJid (unsigned n, const std::string& res = "");
 
 /**
  * Returns the password for the n-th test account.

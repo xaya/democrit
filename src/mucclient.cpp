@@ -34,8 +34,6 @@ MucClient::~MucClient ()
 bool
 MucClient::Connect ()
 {
-  std::unique_lock<std::mutex> lock(mut);
-
   /* Make sure to clean up any still lingering disconnecter thread (which
      has probably finished executing, but is still not joined).  */
   if (disconnecter.joinable ())
@@ -44,6 +42,9 @@ MucClient::Connect ()
 
   if (!XmppClient::Connect (-1))
     return false;
+
+  std::unique_lock<std::mutex> lock(mut);
+  nickToJid.clear ();
 
   CHECK (room == nullptr) << "Did not fully disconnect previously";
 
@@ -76,13 +77,14 @@ MucClient::Connect ()
 void
 MucClient::DisconnectAsync ()
 {
-  std::lock_guard<std::mutex> lock(mut);
-
   if (disconnecting)
     return;
 
   if (disconnecter.joinable ())
     disconnecter.join ();
+
+  std::lock_guard<std::mutex> lock(mut);
+  nickToJid.clear ();
 
   disconnecting = true;
   std::thread worker([this] ()
@@ -109,13 +111,27 @@ MucClient::Disconnect ()
 {
   DisconnectAsync ();
 
-  std::lock_guard<std::mutex> lock(mut);
   if (disconnecter.joinable ())
     disconnecter.join ();
 
+  std::lock_guard<std::mutex> lock(mut);
   CHECK (!disconnecting);
   CHECK (room == nullptr);
   CHECK (!XmppClient::IsConnected ());
+}
+
+bool
+MucClient::ResolveNickname (const std::string& nick, gloox::JID& jid) const
+{
+  std::lock_guard<std::mutex> lock(mut);
+
+  const auto mit = nickToJid.find (nick);
+
+  if (mit == nickToJid.end ())
+    return false;
+
+  jid = mit->second;
+  return true;
 }
 
 bool
@@ -132,16 +148,23 @@ MucClient::handleMUCParticipantPresence (
     const gloox::Presence& presence)
 {
   CHECK_EQ (r, room.get ());
-  LOG (INFO)
+  VLOG (1)
       << "Presence for " << participant.jid->full ()
       << " with flags " << participant.flags
-      << " on room " << room->name ();
+      << " on room " << room->name ()
+      << ": " << presence.presence ();
+
+  /* Nick changes also send an unavailable presence.  We want to not consider
+     them as such, though.  */
+  bool unavailable = (presence.presence () == gloox::Presence::Unavailable);
+  if (participant.flags & gloox::UserNickChanged)
+    unavailable = false;
 
   /* If this is for self, handle a potential successful join or us being
      removed from the room.  */
   if (participant.flags & gloox::UserSelf)
     {
-      if (presence.presence () == gloox::Presence::Unavailable)
+      if (unavailable)
         {
           LOG (WARNING) << "We have been disconnected from " << room->name ();
           DisconnectAsync ();
@@ -157,7 +180,41 @@ MucClient::handleMUCParticipantPresence (
       return;
     }
 
-  /* FIXME: Handle others' presences (for nick-to-JID mapping).  */
+  /* If someone left the room, just clear their nick-map entry.  */
+  if (unavailable)
+    {
+      std::lock_guard<std::mutex> lock(mut);
+      VLOG (1)
+          << "Removing nick-map entry for " << participant.nick->resource ();
+      nickToJid.erase (participant.nick->resource ());
+      return;
+    }
+
+  /* If we do not know the full JID, nothing can be done.  */
+  if (participant.jid == nullptr)
+    {
+      LOG (WARNING)
+          << "Did not receive full JID for " << participant.nick->full ();
+      return;
+    }
+
+  /* Otherwise, update or insert the nick-map entry.  */
+  std::lock_guard<std::mutex> lock(mut);
+
+  std::string nick;
+  if (participant.flags & gloox::UserNickChanged)
+    {
+      nickToJid.erase (participant.nick->resource ());
+      nick = participant.newNick;
+    }
+  else
+    nick = participant.nick->resource ();
+  CHECK_NE (nick, "");
+
+  LOG (INFO)
+      << "Full jid for " << nick << " in room " << room->name ()
+      << ": " << participant.jid->full ();
+  nickToJid[nick] = *participant.jid;
 }
 
 void
@@ -177,8 +234,15 @@ MucClient::handleMUCMessage (gloox::MUCRoom* r, const gloox::Message& msg,
   VLOG (1)
       << "Received message from " << msg.from ().full ()
       << " on room " << room->name ();
-  /* FIXME: Look up the real JID of the sender and pass it.  */
-  HandleMessage (msg);
+  CHECK_EQ (msg.from ().bareJID (), roomName);
+
+  gloox::JID realJid;
+  if (ResolveNickname (msg.from ().resource (), realJid))
+    HandleMessage (realJid, msg);
+  else
+    LOG (WARNING)
+        << "Ignoring message from " << msg.from ().full ()
+        << " whose real sender JID we do not know";
 }
 
 void

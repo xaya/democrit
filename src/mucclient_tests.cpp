@@ -44,12 +44,35 @@ protected:
     return *c.room;
   }
 
-};
+  /**
+   * Expects that the given nickname has no known full JID for the client.
+   */
+  static void
+  ExpectUnknownNick (const MucClient& c, const std::string& nick)
+  {
+    gloox::JID jid;
+    ASSERT_FALSE (c.ResolveNickname (nick, jid));
+  }
 
-/* ************************************************************************** */
+  /**
+   * Expects that the given nickname has a known full JID and that it matches
+   * the given expected one.
+   */
+  static void
+  ExpectNickJid (const MucClient& c, const std::string& nick,
+                 const gloox::JID& expected)
+  {
+    gloox::JID jid;
+    ASSERT_TRUE (c.ResolveNickname (nick, jid));
+    ASSERT_EQ (jid.full (), expected.full ());
+  }
+
+};
 
 namespace
 {
+
+/* ************************************************************************** */
 
 using MucConnectionTests = MucClientTests;
 
@@ -117,6 +140,104 @@ TEST_F (MucConnectionTests, KickedFromRoom)
   SleepSome ();
   ASSERT_TRUE (first.IsConnected ());
   ASSERT_FALSE (second.IsConnected ());
+}
+
+/* ************************************************************************** */
+
+using MucClientNickMapTests = MucClientTests;
+
+TEST_F (MucClientNickMapTests, Works)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  const auto firstJid = GetTestJid (0, "first");
+  MucClient first(firstJid, GetPassword (0), room);
+  ASSERT_TRUE (first.Connect ());
+
+  const auto secondJid = GetTestJid (1, "second");
+  MucClient second(secondJid, GetPassword (1), room);
+  ASSERT_TRUE (second.Connect ());
+
+  ExpectNickJid (first, AccessRoom (second).nick (), secondJid);
+  ExpectNickJid (second, AccessRoom (first).nick (), firstJid);
+}
+
+TEST_F (MucClientNickMapTests, UnknownNick)
+{
+  MucClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  ASSERT_TRUE (client.Connect ());
+
+  ExpectUnknownNick (client, "invalid");
+  ExpectUnknownNick (client, AccessRoom (client).nick ());
+}
+
+TEST_F (MucClientNickMapTests, OtherRoom)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  MucClient first(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  ASSERT_TRUE (first.Connect ());
+
+  MucClient second(GetTestJid (1), GetPassword (1), GetRoom ("bar"));
+  ASSERT_TRUE (second.Connect ());
+
+  ExpectUnknownNick (first, AccessRoom (second).nick ());
+  ExpectUnknownNick (second, AccessRoom (first).nick ());
+}
+
+TEST_F (MucClientNickMapTests, SelfDisconnect)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  MucClient first(GetTestJid (0), GetPassword (0), room);
+  ASSERT_TRUE (first.Connect ());
+
+  MucClient second(GetTestJid (1), GetPassword (1), room);
+  ASSERT_TRUE (second.Connect ());
+  const std::string secondNick = AccessRoom (second).nick ();
+
+  first.Disconnect ();
+  second.Disconnect ();
+  ASSERT_TRUE (first.Connect ());
+
+  ExpectUnknownNick (first, secondNick);
+}
+
+TEST_F (MucClientNickMapTests, PeerDisconnect)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  MucClient first(GetTestJid (0), GetPassword (0), room);
+  ASSERT_TRUE (first.Connect ());
+
+  MucClient second(GetTestJid (1), GetPassword (1), room);
+  ASSERT_TRUE (second.Connect ());
+  const std::string secondNick = AccessRoom (second).nick ();
+  second.Disconnect ();
+
+  ExpectUnknownNick (first, secondNick);
+}
+
+TEST_F (MucClientNickMapTests, NickChange)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  MucClient first(GetTestJid (0), GetPassword (0), room);
+  ASSERT_TRUE (first.Connect ());
+
+  const auto secondJid = GetTestJid (1, "second");
+  MucClient second(secondJid, GetPassword (1), room);
+  ASSERT_TRUE (second.Connect ());
+  const std::string secondNick = AccessRoom (second).nick ();
+
+  ExpectNickJid (first, secondNick, secondJid);
+
+  LOG (INFO) << "Changing nick in the room...";
+  AccessRoom (second).setNick ("my new nick");
+  SleepSome ();
+
+  ExpectUnknownNick (first, secondNick);
+  ExpectNickJid (first, "my new nick", secondJid);
 }
 
 /* ************************************************************************** */
