@@ -32,6 +32,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace democrit
 {
@@ -152,10 +153,15 @@ protected:
    * Subclasses can override it to process them.
    */
   virtual void
-  HandleMessage (const gloox::JID& sender, const gloox::Message& msg)
+  HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
   {}
 
 public:
+
+  /**
+   * A list of stanza extensions that can be published to the MUC channel.
+   */
+  using ExtensionData = std::vector<std::unique_ptr<gloox::StanzaExtension>>;
 
   /**
    * Sets up the client with given data, but does not yet actually
@@ -188,6 +194,18 @@ public:
   {
     return !disconnecting && XmppClient::IsConnected ();
   }
+
+  /**
+   * Registers a given stanza extension with the underlying client.
+   */
+  void RegisterExtension (std::unique_ptr<gloox::StanzaExtension> ext);
+
+  /**
+   * Publishes a message to the channel.  The actual gloox message is
+   * constructed internally with the right type and "to", and will carry
+   * all the given stanza extensions (of which ownership is taken).
+   */
+  void PublishMessage (ExtensionData&& ext);
 
 };
 

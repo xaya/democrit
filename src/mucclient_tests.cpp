@@ -20,8 +20,13 @@
 
 #include "testutils.hpp"
 
+#include <gloox/stanzaextension.h>
+#include <gloox/tag.h>
+
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+
+#include <queue>
 
 namespace democrit
 {
@@ -71,6 +76,189 @@ protected:
 
 namespace
 {
+
+/** XML namespace for our test stanza extension.  */
+#define XMLNS " https://xaya.io/democrit/test/"
+
+/**
+ * Basic stanza extension that we use in tests of messaging.
+ */
+class TestExtension : public gloox::StanzaExtension
+{
+
+private:
+
+  /**
+   * The extension just holds a string, which we use to compare it to
+   * expectations in tests.
+   */
+  std::string value;
+
+public:
+
+  /** The extension type.  We only use one in the tests here anyway.  */
+  static constexpr int EXT_TYPE = gloox::ExtUser + 1;
+
+  /**
+   * Constructs an instance with the given value.  Without a value, it
+   * can be used e.g. as factory.
+   */
+  explicit TestExtension (const std::string& v = "")
+    : StanzaExtension(EXT_TYPE), value(v)
+  {}
+
+  /**
+   * Constructs it from a tag.
+   */
+  explicit TestExtension (const gloox::Tag& t)
+    : StanzaExtension(EXT_TYPE)
+  {
+    value = t.cdata ();
+  }
+
+  const std::string&
+  GetValue () const
+  {
+    return value;
+  }
+
+  const std::string&
+  filterString () const override
+  {
+    static const std::string filter = "/*/test[@xmlns='" XMLNS "']";
+    return filter;
+  }
+
+  gloox::StanzaExtension*
+  newInstance (const gloox::Tag* tag) const override
+  {
+    return new TestExtension (*tag);
+  }
+
+  gloox::StanzaExtension*
+  clone () const override
+  {
+    return new TestExtension (value);
+  }
+
+  gloox::Tag*
+  tag () const override
+  {
+    auto res = std::make_unique<gloox::Tag> ("test", value);
+    CHECK (res->setXmlns (XMLNS));
+    return res.release ();
+  }
+
+};
+
+/**
+ * Test client that registers our stanza extension and has handlers for
+ * messages and other things we may want to test.
+ */
+class TestClient : public MucClient
+{
+
+private:
+
+  /**
+   * Expected data for received messages (private or broadcast).
+   */
+  struct ExpectedMessage
+  {
+    gloox::JID jid;
+    std::string value;
+    bool priv;
+  };
+
+  /**
+   * Queue of received and not yet processed (matched against expectations)
+   * messages.
+   */
+  std::queue<ExpectedMessage> received;
+
+  /** Condition variable that is notified when a new message is received.  */
+  std::condition_variable cv;
+
+  /** Lock for messages and the cv.  */
+  std::mutex mut;
+
+  /**
+   * Add a received message to the queue.
+   */
+  void
+  AddMessage (const ExpectedMessage& msg)
+  {
+    std::lock_guard<std::mutex> lock(mut);
+    received.push (msg);
+    cv.notify_all ();
+  }
+
+protected:
+
+  void
+  HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg) override
+  {
+    auto* ext = msg.findExtension<TestExtension> (TestExtension::EXT_TYPE);
+    if (ext == nullptr)
+      {
+        LOG (WARNING)
+            << "Ignoring message from " << sender.full ()
+            << " that does not have the test extension";
+        return;
+      }
+    AddMessage ({sender, ext->GetValue (), false});
+  }
+
+public:
+
+  explicit TestClient (const gloox::JID& id, const std::string& pwd,
+                       const gloox::JID& rm)
+    : MucClient(id, pwd, rm)
+  {
+    RegisterExtension (std::make_unique<TestExtension> ());
+  }
+
+  /**
+   * At the end of the test, no more messages should have been received.
+   */
+  ~TestClient ()
+  {
+    std::lock_guard<std::mutex> lock(mut);
+    EXPECT_TRUE (received.empty ()) << "Unexpected messages received";
+  }
+
+  /**
+   * Publishes a message with test extension.
+   */
+  void
+  Publish (const std::string& value)
+  {
+    ExtensionData ext;
+    ext.push_back (std::make_unique<TestExtension> (value));
+    PublishMessage (std::move (ext));
+  }
+
+  /**
+   * Expects that the given list of messages are received (waiting for them
+   * if not yet).
+   */
+  void
+  ExpectMessages (const std::vector<ExpectedMessage>& expected)
+  {
+    for (const auto& msg : expected)
+      {
+        std::unique_lock<std::mutex> lock(mut);
+        while (received.empty ())
+          cv.wait (lock);
+
+        EXPECT_EQ (received.front ().jid, msg.jid);
+        EXPECT_EQ (received.front ().value, msg.value);
+        EXPECT_EQ (received.front ().priv, msg.priv);
+        received.pop ();
+      }
+  }
+
+};
 
 /* ************************************************************************** */
 
@@ -238,6 +426,54 @@ TEST_F (MucClientNickMapTests, NickChange)
 
   ExpectUnknownNick (first, secondNick);
   ExpectNickJid (first, "my new nick", secondJid);
+}
+
+/* ************************************************************************** */
+
+using MucMessagingTests = MucClientTests;
+
+TEST_F (MucMessagingTests, PublishMessages)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  const auto fooJid = GetTestJid (0, "foo");
+  TestClient foo(fooJid, GetPassword (0), room);
+  ASSERT_TRUE (foo.Connect ());
+
+  const auto barJid = GetTestJid (1, "bar");
+  TestClient bar(barJid, GetPassword (1), room);
+  ASSERT_TRUE (bar.Connect ());
+
+  foo.Publish ("foo 1");
+  bar.Publish ("bar 1");
+  foo.Publish ("foo 2");
+  bar.Publish ("bar 2");
+
+  foo.ExpectMessages ({{barJid, "bar 1", false}, {barJid, "bar 2", false}});
+  bar.ExpectMessages ({{fooJid, "foo 1", false}, {fooJid, "foo 2", false}});
+}
+
+TEST_F (MucMessagingTests, OtherRoom)
+{
+  const gloox::JID room1 = GetRoom ("room1");
+  const gloox::JID room2 = GetRoom ("room2");
+
+  const auto jid1 = GetTestJid (0, "foo");
+  TestClient inRoom1(jid1, GetPassword (0), room1);
+  ASSERT_TRUE (inRoom1.Connect ());
+
+  const auto jid2 = GetTestJid (0, "bar");
+  TestClient inRoom2(jid2, GetPassword (0), room1);
+  ASSERT_TRUE (inRoom2.Connect ());
+
+  const auto otherJid = GetTestJid (1, "other");
+  TestClient other(otherJid, GetPassword (1), room2);
+  ASSERT_TRUE (other.Connect ());
+
+  other.Publish ("other");
+  inRoom1.Publish ("in room");
+
+  inRoom2.ExpectMessages ({{jid1, "in room", false}});
 }
 
 /* ************************************************************************** */

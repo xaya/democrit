@@ -134,6 +134,30 @@ MucClient::ResolveNickname (const std::string& nick, gloox::JID& jid) const
   return true;
 }
 
+void
+MucClient::RegisterExtension (std::unique_ptr<gloox::StanzaExtension> ext)
+{
+  RunWithClient ([&ext] (gloox::Client& c)
+    {
+      c.registerStanzaExtension (ext.release ());
+    });
+}
+
+void
+MucClient::PublishMessage (ExtensionData&& ext)
+{
+  CHECK (IsConnected ());
+
+  gloox::Message msg(gloox::Message::Groupchat, roomName);
+  for (auto& entry : ext)
+    msg.addExtension (entry.release ());
+
+  RunWithClient ([&msg] (gloox::Client& c)
+    {
+      c.send (msg);
+    });
+}
+
 bool
 MucClient::handleMUCRoomCreation (gloox::MUCRoom* r)
 {
@@ -240,9 +264,14 @@ MucClient::handleMUCMessage (gloox::MUCRoom* r, const gloox::Message& msg,
   if (ResolveNickname (msg.from ().resource (), realJid))
     HandleMessage (realJid, msg);
   else
-    LOG (WARNING)
-        << "Ignoring message from " << msg.from ().full ()
-        << " whose real sender JID we do not know";
+    {
+      /* A side effect of how we handle nicknames is that we do not know
+         our own, which means that we filter out in particular our own
+         messages relayed back to us here.  */
+      VLOG (1)
+          << "Ignoring message from " << msg.from ().full ()
+          << " whose real sender JID we do not know";
+    }
 }
 
 void
