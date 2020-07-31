@@ -204,23 +204,32 @@ MucClient::handleMUCParticipantPresence (
       return;
     }
 
+  LOG_IF (WARNING, participant.jid == nullptr)
+      << "Did not receive full JID for " << participant.nick->full ();
+
   /* If someone left the room, just clear their nick-map entry.  */
   if (unavailable)
     {
       std::lock_guard<std::mutex> lock(mut);
+
       VLOG (1)
           << "Removing nick-map entry for " << participant.nick->resource ();
       nickToJid.erase (participant.nick->resource ());
+
+      if (participant.jid != nullptr)
+        {
+          VLOG (1)
+              << "Room participant " << participant.jid->full ()
+              << " is now disconnected";
+          HandleDisconnect (*participant.jid);
+        }
+
       return;
     }
 
   /* If we do not know the full JID, nothing can be done.  */
   if (participant.jid == nullptr)
-    {
-      LOG (WARNING)
-          << "Did not receive full JID for " << participant.nick->full ();
-      return;
-    }
+    return;
 
   /* Otherwise, update or insert the nick-map entry.  */
   std::lock_guard<std::mutex> lock(mut);

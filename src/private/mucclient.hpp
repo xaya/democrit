@@ -156,6 +156,15 @@ protected:
   HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
   {}
 
+  /**
+   * Handler called when a participant leaves the room.  This can be used
+   * to then e.g. immediately remove their orders from the orderbook.  It is
+   * called with the full JID (not the nickname).
+   */
+  virtual void
+  HandleDisconnect (const gloox::JID& disconnected)
+  {}
+
 public:
 
   /**

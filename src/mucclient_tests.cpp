@@ -24,9 +24,13 @@
 #include <gloox/tag.h>
 
 #include <glog/logging.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <queue>
+
+using testing::_;
+using testing::AnyNumber;
 
 namespace democrit
 {
@@ -216,6 +220,10 @@ public:
     : MucClient(id, pwd, rm)
   {
     RegisterExtension (std::make_unique<TestExtension> ());
+
+    /* By default, we do not care about mock calls to the disconnect
+       handler.  Only some tests want those calls explicit.  */
+    EXPECT_CALL (*this, HandleDisconnect (_)).Times (AnyNumber ());
   }
 
   /**
@@ -257,6 +265,9 @@ public:
         received.pop ();
       }
   }
+
+  MOCK_METHOD (void, HandleDisconnect, (const gloox::JID& disconnected),
+               (override));
 
 };
 
@@ -426,6 +437,36 @@ TEST_F (MucClientNickMapTests, NickChange)
 
   ExpectUnknownNick (first, secondNick);
   ExpectNickJid (first, "my new nick", secondJid);
+}
+
+/* ************************************************************************** */
+
+using MucDisconnectNotificationTests = MucClientTests;
+
+TEST_F (MucDisconnectNotificationTests, Works)
+{
+  const gloox::JID room = GetRoom ("foo");
+
+  const auto fooJid = GetTestJid (0, "foo");
+  TestClient foo(fooJid, GetPassword (0), room);
+
+  const auto barJid = GetTestJid (1, "bar");
+  TestClient bar(barJid, GetPassword (1), room);
+
+  EXPECT_CALL (foo, HandleDisconnect (_)).Times (0);
+  EXPECT_CALL (foo, HandleDisconnect (barJid));
+  EXPECT_CALL (bar, HandleDisconnect (_)).Times (0);
+
+  ASSERT_TRUE (foo.Connect ());
+  ASSERT_TRUE (bar.Connect ());
+
+  /* Changing the nick should not be seen as disconnect.  */
+  AccessRoom (foo).setNick ("my new nick");
+  SleepSome ();
+
+  bar.Disconnect ();
+  SleepSome ();
+  foo.Disconnect ();
 }
 
 /* ************************************************************************** */
