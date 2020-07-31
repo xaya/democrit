@@ -25,6 +25,17 @@
 namespace democrit
 {
 
+MucClient::MucClient (const gloox::JID& j, const std::string& password,
+                      const gloox::JID& rm)
+  : XmppClient(j, password), roomName(rm)
+{
+  gloox::MessageHandler* handler = this;
+  RunWithClient ([&] (gloox::Client& c)
+    {
+      c.registerMessageHandler (handler);
+    });
+}
+
 MucClient::~MucClient ()
 {
   Disconnect ();
@@ -144,11 +155,10 @@ MucClient::RegisterExtension (std::unique_ptr<gloox::StanzaExtension> ext)
 }
 
 void
-MucClient::PublishMessage (ExtensionData&& ext)
+MucClient::SendMessage (gloox::Message&& msg, ExtensionData&& ext)
 {
   CHECK (IsConnected ());
 
-  gloox::Message msg(gloox::Message::Groupchat, roomName);
   for (auto& entry : ext)
     msg.addExtension (entry.release ());
 
@@ -156,6 +166,19 @@ MucClient::PublishMessage (ExtensionData&& ext)
     {
       c.send (msg);
     });
+}
+
+void
+MucClient::PublishMessage (ExtensionData&& ext)
+{
+  SendMessage (gloox::Message (gloox::Message::Groupchat, roomName),
+               std::move (ext));
+}
+
+void
+MucClient::SendMessage (const gloox::JID& to, ExtensionData&& ext)
+{
+  SendMessage (gloox::Message (gloox::Message::Normal, to), std::move (ext));
 }
 
 bool
@@ -298,6 +321,14 @@ MucClient::handleMUCError (gloox::MUCRoom* r, const gloox::StanzaError error)
       joining = false;
       cvJoin.notify_all ();
     }
+}
+
+void
+MucClient::handleMessage (const gloox::Message& msg,
+                          gloox::MessageSession* session)
+{
+  VLOG (1) << "Received private message from " << msg.from ().full ();
+  HandlePrivate (msg.from (), msg);
 }
 
 } // namespace democrit

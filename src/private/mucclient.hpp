@@ -47,8 +47,17 @@ namespace democrit
  * to real JIDs, which we can then "soft rely on" as being authenticated
  * through XID.
  */
-class MucClient : private charon::XmppClient, private gloox::MUCRoomHandler
+class MucClient : private charon::XmppClient,
+                  private gloox::MUCRoomHandler,
+                  private gloox::MessageHandler
 {
+
+public:
+
+  /**
+   * A list of stanza extensions that can be published to the MUC channel.
+   */
+  using ExtensionData = std::vector<std::unique_ptr<gloox::StanzaExtension>>;
 
 private:
 
@@ -114,6 +123,13 @@ private:
    */
   bool ResolveNickname (const std::string& nick, gloox::JID& jid) const;
 
+  /**
+   * Adds the given stanza extensions to the message and then broadcasts it
+   * using normal "send" functionality.  This code is shared between sending
+   * public and private messages.
+   */
+  void SendMessage (gloox::Message&& msg, ExtensionData&& ext);
+
   void handleMUCError (gloox::MUCRoom* r, gloox::StanzaError) override;
   bool handleMUCRoomCreation (gloox::MUCRoom* r) override;
   void handleMUCMessage (gloox::MUCRoom* r, const gloox::Message& msg,
@@ -121,6 +137,9 @@ private:
   void handleMUCParticipantPresence (
       gloox::MUCRoom* r, gloox::MUCRoomParticipant participant,
       const gloox::Presence& presence) override;
+
+  void handleMessage (const gloox::Message& msg,
+                      gloox::MessageSession* session) override;
 
   void
   handleMUCSubject (gloox::MUCRoom* r, const std::string& nick,
@@ -157,6 +176,13 @@ protected:
   {}
 
   /**
+   * Handler called when a private message is received.
+   */
+  virtual void
+  HandlePrivate (const gloox::JID& sender, const gloox::Stanza& msg)
+  {}
+
+  /**
    * Handler called when a participant leaves the room.  This can be used
    * to then e.g. immediately remove their orders from the orderbook.  It is
    * called with the full JID (not the nickname).
@@ -168,18 +194,11 @@ protected:
 public:
 
   /**
-   * A list of stanza extensions that can be published to the MUC channel.
-   */
-  using ExtensionData = std::vector<std::unique_ptr<gloox::StanzaExtension>>;
-
-  /**
    * Sets up the client with given data, but does not yet actually
    * attempt to connect.
    */
   explicit MucClient (const gloox::JID& j, const std::string& password,
-                      const gloox::JID& rm)
-    : XmppClient(j, password), roomName(rm)
-  {}
+                      const gloox::JID& rm);
 
   virtual ~MucClient ();
 
@@ -215,6 +234,13 @@ public:
    * all the given stanza extensions (of which ownership is taken).
    */
   void PublishMessage (ExtensionData&& ext);
+
+  /**
+   * Sends a private message to a target JID.  Note that Democrit uses "real"
+   * XMPP messages to the actual JID for private messaging, not MUC private
+   * messages.
+   */
+  void SendMessage (const gloox::JID& to, ExtensionData&& ext);
 
 };
 

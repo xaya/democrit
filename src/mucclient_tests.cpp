@@ -197,10 +197,13 @@ private:
     cv.notify_all ();
   }
 
-protected:
-
+  /**
+   * Handles a message (private or public) that was received.  This looks
+   * for our test extension, and if present, calls AddMessage.
+   */
   void
-  HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg) override
+  HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg,
+                 const bool priv)
   {
     auto* ext = msg.findExtension<TestExtension> (TestExtension::EXT_TYPE);
     if (ext == nullptr)
@@ -210,7 +213,21 @@ protected:
             << " that does not have the test extension";
         return;
       }
-    AddMessage ({sender, ext->GetValue (), false});
+    AddMessage ({sender, ext->GetValue (), priv});
+  }
+
+protected:
+
+  void
+  HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg) override
+  {
+    HandleMessage (sender, msg, false);
+  }
+
+  void
+  HandlePrivate (const gloox::JID& sender, const gloox::Stanza& msg) override
+  {
+    HandleMessage (sender, msg, true);
   }
 
 public:
@@ -244,6 +261,17 @@ public:
     ExtensionData ext;
     ext.push_back (std::make_unique<TestExtension> (value));
     PublishMessage (std::move (ext));
+  }
+
+  /**
+   * Sends a private message with test extension.
+   */
+  void
+  SendPrivate (const gloox::JID& to, const std::string& value)
+  {
+    ExtensionData ext;
+    ext.push_back (std::make_unique<TestExtension> (value));
+    SendMessage (to, std::move (ext));
   }
 
   /**
@@ -515,6 +543,26 @@ TEST_F (MucMessagingTests, OtherRoom)
   inRoom1.Publish ("in room");
 
   inRoom2.ExpectMessages ({{jid1, "in room", false}});
+}
+
+TEST_F (MucMessagingTests, PrivateMessages)
+{
+  const auto fooJid = GetTestJid (0, "foo");
+  TestClient foo(fooJid, GetPassword (0), GetRoom ("foo"));
+  ASSERT_TRUE (foo.Connect ());
+
+  const auto barJid = GetTestJid (1, "bar");
+  TestClient bar(barJid, GetPassword (1), GetRoom ("bar"));
+  ASSERT_TRUE (bar.Connect ());
+
+  foo.SendPrivate (barJid, "foo 1");
+  bar.SendPrivate (fooJid, "bar 1");
+  foo.SendPrivate (GetTestJid (1, "other res"), "invalid");
+  foo.SendPrivate (barJid, "foo 2");
+  bar.SendPrivate (fooJid, "bar 2");
+
+  foo.ExpectMessages ({{barJid, "bar 1", true}, {barJid, "bar 2", true}});
+  bar.ExpectMessages ({{fooJid, "foo 1", true}, {fooJid, "foo 2", true}});
 }
 
 /* ************************************************************************** */
