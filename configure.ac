@@ -30,6 +30,7 @@ AX_PKG_CHECK_MODULES([XAYAGAME], [libxayautil libxayagame], [])
 # Private dependencies for the library parts.
 AX_PKG_CHECK_MODULES([SQLITE], [], [sqlite3])
 AX_PKG_CHECK_MODULES([GLOG], [], [libglog])
+AX_PKG_CHECK_MODULES([CHARON], [], [charon gloox])
 
 # Private dependencies for tests and binaries only.
 PKG_CHECK_MODULES([JSONRPCCPPSERVER], [libjsonrpccpp-server])
@@ -38,7 +39,8 @@ PKG_CHECK_MODULES([GTEST], [gmock gtest_main])
 
 AC_CONFIG_FILES([
   Makefile \
-  gsp/Makefile
+  gsp/Makefile \
+  src/Makefile
 ])
 AC_OUTPUT
 
