@@ -7,7 +7,8 @@ libdemocrit_la_LIBADD = \
   $(JSON_LIBS) $(CHARON_LIBS) $(XAYAGAME_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   mucclient.cpp
-democrit_HEADERS =
+democrit_HEADERS = \
+  assetspec.hpp
 noinst_HEADERS = \
   private/mucclient.hpp
 
