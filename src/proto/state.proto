@@ -1,0 +1,44 @@
+/*
+    Democrit - atomic trades for XAYA games
+    Copyright (C) 2020  Autonomous Worlds Ltd
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+syntax = "proto2";
+
+import "orders.proto";
+
+package democrit.proto;
+
+/**
+ * Internal state of the democrit instance.  We hold all (or at least most)
+ * of that in a message of this type, which can then be easily shared
+ * across the process as needed, and also persisted easily.
+ */
+message State
+{
+
+  /** The account name of the user this is for.  */
+  optional string account = 1;
+
+  /** All our own orders.  */
+  optional OrdersOfAccount own_orders = 2;
+
+  /* The general orderbook is not kept here.  We use std::chrono
+     timepoints with it, and it is ephemeral in nature in general anyway
+     (i.e. when restarting the Democrit process, it should be received
+     again fresh rather than restored from a previous save).  */
+
+}
