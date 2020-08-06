@@ -14,16 +14,20 @@ BUILT_SOURCES = $(PROTOHEADERS)
 CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES)
 
 libdemocrit_la_CXXFLAGS = \
-  $(JSON_CFLAGS) $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) $(GLOG_CFLAGS)
+  $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) \
+  $(JSON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
 libdemocrit_la_LIBADD = \
-  $(JSON_LIBS) $(CHARON_LIBS) $(XAYAGAME_LIBS) $(GLOG_LIBS)
+  $(CHARON_LIBS) $(XAYAGAME_LIBS) \
+  $(JSON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
+  authenticator.cpp \
   mucclient.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp
 proto_HEADERS = $(PROTOHEADERS)
 noinst_HEADERS = \
+  private/authenticator.hpp \
   private/mucclient.hpp
 
 check_PROGRAMS = tests
@@ -39,6 +43,7 @@ tests_LDADD = \
 tests_SOURCES = \
   testutils.cpp \
   \
+  authenticator_tests.cpp \
   mucclient_tests.cpp
 check_HEADERS = \
   testutils.hpp
