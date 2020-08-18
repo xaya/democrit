@@ -21,6 +21,7 @@ libdemocrit_la_LIBADD = \
   $(JSON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
+  intervaljob.cpp \
   mucclient.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
@@ -28,6 +29,7 @@ democrit_HEADERS = \
 proto_HEADERS = $(PROTOHEADERS)
 noinst_HEADERS = \
   private/authenticator.hpp \
+  private/intervaljob.hpp \
   private/mucclient.hpp
 
 check_PROGRAMS = tests
@@ -44,6 +46,7 @@ tests_SOURCES = \
   testutils.cpp \
   \
   authenticator_tests.cpp \
+  intervaljob_tests.cpp \
   mucclient_tests.cpp
 check_HEADERS = \
   testutils.hpp
