@@ -1,0 +1,105 @@
+/*
+    Democrit - atomic trades for XAYA games
+    Copyright (C) 2020  Autonomous Worlds Ltd
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+#ifndef DEMOCRIT_MYORDERS_HPP
+#define DEMOCRIT_MYORDERS_HPP
+
+#include "private/intervaljob.hpp"
+#include "private/state.hpp"
+#include "proto/orders.pb.h"
+
+#include <chrono>
+#include <mutex>
+#include <memory>
+
+namespace democrit
+{
+
+/**
+ * The orders owned by the local user.  This provides functions to
+ * easily manage them (e.g. cancel by ID or add a new one) as exposed
+ * through the RPC interface.  It takes care of broadcasting them
+ * as needed both to keep them updated and also to prevent them from
+ * timing out for others.
+ */
+class MyOrders
+{
+
+private:
+
+  /** Global state instance, which holds the orders.  */
+  State& state;
+
+  /** The worker job to send refreshing broadcasts.  */
+  std::unique_ptr<IntervalJob> refresher;
+
+  /**
+   * Starts (or restarts) the refresher thread with the given interval.
+   */
+  void StartRefresher (std::chrono::milliseconds intv);
+
+  /**
+   * Runs a single refresh iteration.
+   */
+  void RunRefresh ();
+
+protected:
+
+  /**
+   * Subclasses can implement this method to be notified of needed
+   * updates for the orders of the current account.  This is mostly used
+   * to broadcast them via XMPP, but can be used directly in tests as
+   * well.
+   */
+  virtual void UpdateOrders (const proto::OrdersOfAccount& ownOrders) = 0;
+
+public:
+
+  template <typename Rep, typename Period>
+    explicit MyOrders (State& s, const std::chrono::duration<Rep, Period> intv)
+    : state(s)
+  {
+    StartRefresher (intv);
+  }
+
+  virtual ~MyOrders () = default;
+
+  MyOrders () = delete;
+  MyOrders (const MyOrders&) = delete;
+  void operator= (const MyOrders&) = delete;
+
+  /**
+   * Adds a new order to the list of own orders.
+   */
+  void Add (proto::Order&& o);
+
+  /**
+   * Cancels (removes) the order with the given ID, if it exists.
+   */
+  void RemoveById (uint64_t id);
+
+  /**
+   * Returns the current set of own orders.
+   */
+  proto::OrdersOfAccount GetOrders () const;
+
+};
+
+} // namespace democrit
+
+#endif // DEMOCRIT_MYORDERS_HPP

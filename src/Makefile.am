@@ -23,6 +23,7 @@ libdemocrit_la_SOURCES = \
   authenticator.cpp \
   intervaljob.cpp \
   mucclient.cpp \
+  myorders.cpp \
   orderbook.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
@@ -32,7 +33,9 @@ noinst_HEADERS = \
   private/authenticator.hpp \
   private/intervaljob.hpp \
   private/mucclient.hpp \
-  private/orderbook.hpp
+  private/myorders.hpp \
+  private/orderbook.hpp \
+  private/state.hpp
 
 check_PROGRAMS = tests
 TESTS = tests
@@ -50,6 +53,7 @@ tests_SOURCES = \
   authenticator_tests.cpp \
   intervaljob_tests.cpp \
   mucclient_tests.cpp \
+  myorders_tests.cpp \
   orderbook_tests.cpp
 check_HEADERS = \
   testutils.hpp

@@ -36,6 +36,9 @@ message State
   /** All our own orders.  */
   optional OrdersOfAccount own_orders = 2;
 
+  /** The next free ID to use for own orders.  */
+  optional uint64 next_free_id = 3;
+
   /* The general orderbook is not kept here.  We use std::chrono
      timepoints with it, and it is ephemeral in nature in general anyway
      (i.e. when restarting the Democrit process, it should be received
