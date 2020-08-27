@@ -15,14 +15,15 @@ CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES)
 
 libdemocrit_la_CXXFLAGS = \
   $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) \
-  $(JSON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
+  $(JSON_CFLAGS) $(PROTOBUF_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
 libdemocrit_la_LIBADD = \
   $(CHARON_LIBS) $(XAYAGAME_LIBS) \
-  $(JSON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
+  $(JSON_LIBS) $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
   intervaljob.cpp \
   mucclient.cpp \
+  orderbook.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp
@@ -30,24 +31,26 @@ proto_HEADERS = $(PROTOHEADERS)
 noinst_HEADERS = \
   private/authenticator.hpp \
   private/intervaljob.hpp \
-  private/mucclient.hpp
+  private/mucclient.hpp \
+  private/orderbook.hpp
 
 check_PROGRAMS = tests
 TESTS = tests
 
 tests_CXXFLAGS = \
   $(JSON_CFLAGS) $(CHARON_CFLAGS) $(GLOG_CFLAGS) \
-  $(GTEST_CFLAGS)
+  $(PROTOBUF_CFLAGS) $(GTEST_CFLAGS)
 tests_LDADD = \
   $(builddir)/libdemocrit.la \
   $(JSON_LIBS) $(CHARON_LIBS) $(GLOG_LIBS) \
-  $(GTEST_LIBS)
+  $(PROTOBUF_LIBS) $(GTEST_LIBS)
 tests_SOURCES = \
   testutils.cpp \
   \
   authenticator_tests.cpp \
   intervaljob_tests.cpp \
-  mucclient_tests.cpp
+  mucclient_tests.cpp \
+  orderbook_tests.cpp
 check_HEADERS = \
   testutils.hpp
 

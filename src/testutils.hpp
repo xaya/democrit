@@ -21,6 +21,10 @@
 
 #include <gloox/jid.h>
 
+#include <glog/logging.h>
+
+#include <google/protobuf/text_format.h>
+
 #include <string>
 
 namespace democrit
@@ -88,6 +92,18 @@ gloox::JID GetRoom (const std::string& nm);
  * some things in tests.
  */
 void SleepSome ();
+
+/**
+ * Parses a protocol buffer from text format.
+ */
+template <typename Proto>
+  Proto
+  ParseTextProto (const std::string& str)
+{
+  Proto res;
+  CHECK (google::protobuf::TextFormat::ParseFromString (str, &res));
+  return res;
+}
 
 } // namespace democrit
 
