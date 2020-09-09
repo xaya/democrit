@@ -25,6 +25,7 @@ libdemocrit_la_SOURCES = \
   mucclient.cpp \
   myorders.cpp \
   orderbook.cpp \
+  stanzas.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp
@@ -35,6 +36,7 @@ noinst_HEADERS = \
   private/mucclient.hpp \
   private/myorders.hpp \
   private/orderbook.hpp \
+  private/stanzas.hpp stanzas.tpp \
   private/state.hpp
 
 check_PROGRAMS = tests
@@ -54,7 +56,8 @@ tests_SOURCES = \
   intervaljob_tests.cpp \
   mucclient_tests.cpp \
   myorders_tests.cpp \
-  orderbook_tests.cpp
+  orderbook_tests.cpp \
+  stanzas_tests.cpp
 check_HEADERS = \
   testutils.hpp
 
