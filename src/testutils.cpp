@@ -37,6 +37,7 @@ const ServerConfiguration LOCAL_SERVER =
     {
       {"xmpptest1", "password"},
       {"xmpptest2", "password"},
+      {"xmpptest3", "password"},
     },
   };
 

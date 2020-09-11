@@ -26,12 +26,12 @@
 namespace democrit
 {
 
-namespace
-{
-
 DEFINE_string (democrit_xid_servers, "chat.xaya.io",
                "Comma-separated list of XMPP servers that we trust"
                " to apply XID authentication");
+
+namespace
+{
 
 /**
  * Parses a comma-separated string into pieces.

@@ -19,11 +19,15 @@
 #ifndef DEMOCRIT_TESTUTILS_HPP
 #define DEMOCRIT_TESTUTILS_HPP
 
+#include "proto/orders.pb.h"
+
 #include <gloox/jid.h>
 
 #include <glog/logging.h>
+#include <gmock/gmock.h>
 
 #include <google/protobuf/text_format.h>
+#include <google/protobuf/util/message_differencer.h>
 
 #include <string>
 
@@ -57,7 +61,7 @@ struct ServerConfiguration
   const char* muc;
 
   /** The test accounts.  */
-  TestAccount accounts[2];
+  TestAccount accounts[3];
 
 };
 
@@ -103,6 +107,36 @@ template <typename Proto>
   Proto res;
   CHECK (google::protobuf::TextFormat::ParseFromString (str, &res));
   return res;
+}
+
+MATCHER_P (EqualsOrdersForAsset, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrderbookForAsset> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
+}
+
+MATCHER_P (EqualsOrdersByAsset, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrderbookByAsset> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
+}
+
+MATCHER_P (EqualsOrdersOfAccount, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrdersOfAccount> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
 }
 
 } // namespace democrit

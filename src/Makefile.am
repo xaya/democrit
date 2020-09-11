@@ -21,6 +21,7 @@ libdemocrit_la_LIBADD = \
   $(JSON_LIBS) $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
+  daemon.cpp \
   intervaljob.cpp \
   mucclient.cpp \
   myorders.cpp \
@@ -28,7 +29,8 @@ libdemocrit_la_SOURCES = \
   stanzas.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
-  assetspec.hpp
+  assetspec.hpp \
+  daemon.hpp
 proto_HEADERS = $(PROTOHEADERS)
 noinst_HEADERS = \
   private/authenticator.hpp \
@@ -43,16 +45,17 @@ check_PROGRAMS = tests
 TESTS = tests
 
 tests_CXXFLAGS = \
-  $(JSON_CFLAGS) $(CHARON_CFLAGS) $(GLOG_CFLAGS) \
+  $(JSON_CFLAGS) $(CHARON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS) \
   $(PROTOBUF_CFLAGS) $(GTEST_CFLAGS)
 tests_LDADD = \
   $(builddir)/libdemocrit.la \
-  $(JSON_LIBS) $(CHARON_LIBS) $(GLOG_LIBS) \
+  $(JSON_LIBS) $(CHARON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) \
   $(PROTOBUF_LIBS) $(GTEST_LIBS)
 tests_SOURCES = \
   testutils.cpp \
   \
   authenticator_tests.cpp \
+  daemon_tests.cpp \
   intervaljob_tests.cpp \
   mucclient_tests.cpp \
   myorders_tests.cpp \

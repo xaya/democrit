@@ -23,11 +23,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <google/protobuf/util/message_differencer.h>
-
 #include <chrono>
-
-using google::protobuf::util::MessageDifferencer;
 
 namespace democrit
 {
@@ -62,26 +58,6 @@ public:
   {}
 
 };
-
-MATCHER_P (EqualsOrdersForAsset, str, "")
-{
-  const auto expected = ParseTextProto<proto::OrderbookForAsset> (str);
-  if (MessageDifferencer::Equals (arg, expected))
-    return true;
-
-  *result_listener << "actual: " << arg.DebugString ();
-  return false;
-}
-
-MATCHER_P (EqualsOrdersByAsset, str, "")
-{
-  const auto expected = ParseTextProto<proto::OrderbookByAsset> (str);
-  if (MessageDifferencer::Equals (arg, expected))
-    return true;
-
-  *result_listener << "actual: " << arg.DebugString ();
-  return false;
-}
 
 /* ************************************************************************** */
 
