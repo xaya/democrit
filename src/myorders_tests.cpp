@@ -56,7 +56,24 @@ private:
   /** Last time when UpdateOrders was called.  */
   Clock::time_point lastUpdate;
 
+  /**
+   * Assets that are considered "invalid" for order-validation purposes.
+   * We use that to verify the order validation going on.
+   */
+  std::set<Asset> invalidAssets;
+
+  /** Lock for invalidAssets.  */
+  mutable std::mutex mutInvalidAssets;
+
 protected:
+
+  bool
+  ValidateOrder (const std::string& account,
+                 const proto::Order& o) const override
+  {
+    std::lock_guard<std::mutex> lock(mutInvalidAssets);
+    return invalidAssets.count (o.asset ()) == 0;
+  }
 
   void
   UpdateOrders (const proto::OrdersOfAccount& ownOrders) override
@@ -92,6 +109,16 @@ public:
     return lastOrders;
   }
 
+  /**
+   * Marks an asset as invalid for order validation.
+   */
+  void
+  AddInvalidAsset (const Asset& a)
+  {
+    std::lock_guard<std::mutex> lock(mutInvalidAssets);
+    invalidAssets.insert (a);
+  }
+
 };
 
 class MyOrdersTests : public testing::Test
@@ -113,10 +140,10 @@ protected:
   /**
    * Calls AddOrder with data given as text proto.
    */
-  static void
+  static bool
   AddOrder (MyOrders& mo, const std::string& str)
   {
-    mo.Add (ParseTextProto<proto::Order> (str));
+    return mo.Add (ParseTextProto<proto::Order> (str));
   }
 
 };
@@ -205,6 +232,52 @@ TEST_F (MyOrdersTests, Refresh)
   EXPECT_LE (mo.GetUpdatedDuration (), REFRESH_INTV);
   EXPECT_THAT (mo.GetLastOrders (), EqualsOrdersOfAccount (R"(
     account: "domob"
+  )"));
+}
+
+TEST_F (MyOrdersTests, Validation)
+{
+  TestMyOrders mo(state, REFRESH_INTV);
+  mo.AddInvalidAsset ("invalid");
+
+  ASSERT_TRUE (AddOrder (mo, R"(
+    asset: "not invalid"
+    type: BID
+    price_sat: 10
+  )"));
+  ASSERT_FALSE (AddOrder (mo, R"(
+    asset: "invalid"
+    type: ASK
+    price_sat: 20
+  )"));
+  ASSERT_TRUE (AddOrder (mo, R"(
+    asset: "later invalid"
+    type: ASK
+    price_sat: 30
+  )"));
+  EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 101
+        value: { asset: "not invalid" type: BID price_sat: 10 }
+      }
+    orders:
+      {
+        key: 102
+        value: { asset: "later invalid" type: ASK price_sat: 30 }
+      }
+  )"));
+
+  mo.AddInvalidAsset ("later invalid");
+  std::this_thread::sleep_for (3 * REFRESH_INTV);
+  EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 101
+        value: { asset: "not invalid" type: BID price_sat: 10 }
+      }
   )"));
 }
 

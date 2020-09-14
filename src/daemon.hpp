@@ -54,7 +54,7 @@ private:
 
 public:
 
-  explicit Daemon (const std::string& account,
+  explicit Daemon (const AssetSpec& spec, const std::string& account,
                    const std::string& jid, const std::string& password,
                    const std::string& mucRoom);
 
@@ -77,9 +77,10 @@ public:
   proto::OrderbookByAsset GetOrdersByAsset () const;
 
   /**
-   * Adds a new order to the list of own orders.
+   * Adds a new order to the list of own orders.  Returns false if the
+   * given order seems invalid for our account.
    */
-  void AddOrder (proto::Order&& o);
+  bool AddOrder (proto::Order&& o);
 
   /**
    * Cancels an order (of the user's own) by ID.

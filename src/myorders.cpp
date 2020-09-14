@@ -36,14 +36,36 @@ void
 MyOrders::RunRefresh ()
 {
   VLOG (2) << "Refreshing set of own orders...";
+
+  state.AccessState ([this] (proto::State& s)
+    {
+      proto::OrdersOfAccount updated;
+      for (auto& o : *s.mutable_own_orders ()->mutable_orders ())
+        {
+          if (ValidateOrder (s.account (), o.second))
+            updated.mutable_orders ()->insert ({o.first, std::move (o.second)});
+          else
+            LOG (WARNING)
+                << "Dropping invalid own order:\n" << o.second.DebugString ();
+        }
+      s.mutable_own_orders ()->Swap (&updated);
+    });
+
   UpdateOrders (GetOrders ());
 }
 
-void
+bool
 MyOrders::Add (proto::Order&& o)
 {
-  state.AccessState ([this, &o] (proto::State& s)
+  bool added = false;
+  state.AccessState ([this, &o, &added] (proto::State& s)
     {
+      if (!ValidateOrder (s.account (), o))
+        {
+          LOG (WARNING) << "Added order is invalid:\n" << o.DebugString ();
+          return;
+        }
+
       o.clear_account ();
       o.clear_id ();
 
@@ -54,9 +76,13 @@ MyOrders::Add (proto::Order&& o)
           << "Adding new order with ID " << id << ":\n"
           << o.DebugString ();
       (*s.mutable_own_orders ()->mutable_orders ())[id].Swap (&o);
+      added = true;
     });
 
-  RunRefresh ();
+  if (added)
+    RunRefresh ();
+
+  return added;
 }
 
 void
@@ -82,6 +108,13 @@ MyOrders::GetOrders () const
     });
 
   return res;
+}
+
+bool
+MyOrders::ValidateOrder (const std::string& account,
+                         const proto::Order& o) const
+{
+  return true;
 }
 
 } // namespace democrit

@@ -55,6 +55,8 @@ private:
 
 protected:
 
+  bool ValidateOrder (const std::string& account,
+                      const proto::Order& o) const override;
   void UpdateOrders (const proto::OrdersOfAccount& ownOrders) override;
 
 public:
@@ -72,6 +74,9 @@ class Daemon::Impl : private MucClient
 
 private:
 
+  /** Asset spec used to validate orders.  */
+  const AssetSpec& spec;
+
   /** The internal "global" state with thread-safe access.  */
   State state;
 
@@ -87,6 +92,12 @@ private:
   /** Interval job for checking the connection and perhaps reconnecting.  */
   std::unique_ptr<IntervalJob> reconnecter;
 
+  /**
+   * Returns true if the given order seems valid for the given account,
+   * according to the asset spec.
+   */
+  bool ValidateOrder (const std::string& account, const proto::Order& o) const;
+
   friend class Daemon;
   friend class MyOrdersImpl;
 
@@ -98,7 +109,7 @@ protected:
 
 public:
 
-  explicit Impl (const std::string& account,
+  explicit Impl (const AssetSpec& s, const std::string& account,
                  const std::string& jid, const std::string& password,
                  const std::string& mucRoom);
 
@@ -115,6 +126,13 @@ Daemon::MyOrdersImpl::MyOrdersImpl (Impl& i)
              std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms) / 2),
     impl(i)
 {}
+
+bool
+Daemon::MyOrdersImpl::ValidateOrder (const std::string& account,
+                                     const proto::Order& o) const
+{
+  return impl.ValidateOrder (account, o);
+}
 
 void
 Daemon::MyOrdersImpl::UpdateOrders (const proto::OrdersOfAccount& ownOrders)
@@ -135,10 +153,11 @@ Daemon::MyOrdersImpl::UpdateOrders (const proto::OrdersOfAccount& ownOrders)
   impl.PublishMessage (std::move (ext));
 }
 
-Daemon::Impl::Impl (const std::string& account,
+Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
                     const std::string& jid, const std::string& password,
                     const std::string& mucRoom)
   : MucClient (gloox::JID (jid), password, gloox::JID (mucRoom)),
+    spec(s),
     myOrders(*this),
     allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms))
 {
@@ -167,6 +186,41 @@ Daemon::Impl::Impl (const std::string& account,
     });
 }
 
+bool
+Daemon::Impl::ValidateOrder (const std::string& account,
+                             const proto::Order& o) const
+{
+  if (o.max_units () == 0)
+    return false;
+
+  if (o.has_min_units ())
+    {
+      if (o.min_units () == 0)
+        return false;
+      if (o.min_units () > o.max_units ())
+        return false;
+    }
+
+  if (!o.has_price_sat ())
+    return false;
+
+  if (!spec.IsAsset (o.asset ()))
+    return false;
+
+  switch (o.type ())
+    {
+    case proto::Order::BID:
+      return spec.CanBuy (account, o.asset (), o.max_units ());
+
+    case proto::Order::ASK:
+      xaya::uint256 dummy;
+      return spec.CanSell (account, o.asset (), o.max_units (), dummy);
+
+    default:
+      LOG (FATAL) << "Unexpected order type: " << static_cast<int> (o.type ());
+    }
+}
+
 void
 Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
 {
@@ -181,8 +235,17 @@ Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
       = msg.findExtension<AccountOrdersStanza> (AccountOrdersStanza::EXT_TYPE);
   if (ordersExt != nullptr && ordersExt->IsValid ())
     {
-      proto::OrdersOfAccount orders = ordersExt->GetData ();
+      proto::OrdersOfAccount orders;
       orders.set_account (account);
+
+      for (const auto& o : ordersExt->GetData ().orders ())
+        if (ValidateOrder (account, o.second))
+          orders.mutable_orders ()->insert (o);
+        else
+          LOG (WARNING)
+              << "Ignoring invalid order from " << account << "\n:"
+              << o.second.DebugString ();
+
       allOrders.UpdateOrders (std::move (orders));
     }
 }
@@ -205,10 +268,10 @@ Daemon::Impl::HandleDisconnect (const gloox::JID& disconnected)
 
 /* ************************************************************************** */
 
-Daemon::Daemon (const std::string& account,
+Daemon::Daemon (const AssetSpec& spec, const std::string& account,
                 const std::string& jid, const std::string& password,
                 const std::string& mucRoom)
-  : impl(std::make_unique<Impl> (account, jid, password, mucRoom))
+  : impl(std::make_unique<Impl> (spec, account, jid, password, mucRoom))
 {}
 
 Daemon::~Daemon () = default;
@@ -225,10 +288,10 @@ Daemon::GetOrdersByAsset () const
   return impl->allOrders.GetByAsset ();
 }
 
-void
+bool
 Daemon::AddOrder (proto::Order&& o)
 {
-  impl->myOrders.Add (std::move (o));
+  return impl->myOrders.Add (std::move (o));
 }
 
 void

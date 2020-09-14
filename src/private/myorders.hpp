@@ -61,6 +61,15 @@ private:
 protected:
 
   /**
+   * Validates a given order for an account.  By default this just
+   * returns true, but it can be overridden to add proper validation.
+   * This is used when adding an order, and also when orders are refreshed
+   * to weed out invalid ones.
+   */
+  virtual bool ValidateOrder (const std::string& account,
+                              const proto::Order& o) const;
+
+  /**
    * Subclasses can implement this method to be notified of needed
    * updates for the orders of the current account.  This is mostly used
    * to broadcast them via XMPP, but can be used directly in tests as
@@ -84,9 +93,11 @@ public:
   void operator= (const MyOrders&) = delete;
 
   /**
-   * Adds a new order to the list of own orders.
+   * Adds a new order to the list of own orders.  If we have a validator set,
+   * checks it first.  Returns true if it was added, and false if not (because
+   * it was invalid).
    */
-  void Add (proto::Order&& o);
+  bool Add (proto::Order&& o);
 
   /**
    * Cancels (removes) the order with the given ID, if it exists.

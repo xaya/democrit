@@ -53,6 +53,8 @@ class DaemonTests : public testing::Test
 
 protected:
 
+  TestAssets assets;
+
   DaemonTests ()
   {
     FLAGS_democrit_xid_servers = GetServerConfig ().server;
@@ -90,8 +92,8 @@ public:
   /**
    * Constructs the instance based on the n-th test account.
    */
-  explicit TestDaemon (const unsigned n)
-    : Daemon(GetTestAccount (n), GetTestJid (n).full (),
+  explicit TestDaemon (const AssetSpec& spec, const unsigned n)
+    : Daemon(spec, GetTestAccount (n), GetTestJid (n).full (),
              GetPassword (n), GetRoom ("room").full ())
   {
     CHECK (IsConnected ());
@@ -144,19 +146,23 @@ public:
 
 TEST_F (DaemonTests, Basic)
 {
-  TestDaemon d1(0), d2(1);
-  auto d3 = std::make_unique<TestDaemon> (2);
+  TestDaemon d1(assets, 0), d2(assets, 1);
+  auto d3 = std::make_unique<TestDaemon> (assets, 2);
+
+  assets.SetBalance ("xmpptest1", "gold", 100);
+  assets.InitialiseAccount ("xmpptest2");
+  assets.SetBalance ("xmpptest3", "gold", 1);
 
   d1.AddFromText (R"(
     # ID and account will be ignored in here.
     account: "foo" id: 42
-    asset: "gold" type: BID price_sat: 10
+    asset: "gold" type: BID price_sat: 10 max_units: 1
   )");
   d1.AddFromText (R"(
-    asset: "gold" type: ASK price_sat: 50
+    asset: "gold" type: ASK price_sat: 50 max_units: 1
   )");
   d2.AddFromText (R"(
-    asset: "gold" type: BID price_sat: 5
+    asset: "gold" type: BID price_sat: 5 max_units: 1
   )");
 
   SleepSome ();
@@ -165,93 +171,185 @@ TEST_F (DaemonTests, Basic)
     orders:
       {
         key: 0
-        value: { asset: "gold" type: BID price_sat: 10 }
+        value: { asset: "gold" type: BID price_sat: 10 max_units: 1 }
       }
     orders:
       {
         key: 1
-        value: { asset: "gold" type: ASK price_sat: 50 }
+        value: { asset: "gold" type: ASK price_sat: 50 max_units: 1 }
       }
   )"));
   EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest1" id: 0 price_sat: 10 }
-    asks: { account: "xmpptest1" id: 1 price_sat: 50 }
+    bids: { account: "xmpptest1" id: 0 price_sat: 10 max_units: 1 }
+    asks: { account: "xmpptest1" id: 1 price_sat: 50 max_units: 1 }
   )"));
   EXPECT_THAT (d3->GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest1" id: 0 price_sat: 10 }
-    bids: { account: "xmpptest2" id: 0 price_sat: 5 }
-    asks: { account: "xmpptest1" id: 1 price_sat: 50 }
+    bids: { account: "xmpptest1" id: 0 price_sat: 10 max_units: 1 }
+    bids: { account: "xmpptest2" id: 0 price_sat: 5 max_units: 1 }
+    asks: { account: "xmpptest1" id: 1 price_sat: 50 max_units: 1 }
   )"));
 
   d1.CancelOrder (1);
   d3->AddFromText (R"(
-    asset: "gold" type: ASK price_sat: 20
+    asset: "gold" type: ASK price_sat: 20 max_units: 1
   )");
   SleepSome ();
   EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest1" id: 0 price_sat: 10 }
-    asks: { account: "xmpptest3" id: 0 price_sat: 20 }
+    bids: { account: "xmpptest1" id: 0 price_sat: 10 max_units: 1 }
+    asks: { account: "xmpptest3" id: 0 price_sat: 20 max_units: 1 }
   )"));
 
   d3.reset ();
   SleepSome ();
   EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest1" id: 0 price_sat: 10 }
+    bids: { account: "xmpptest1" id: 0 price_sat: 10 max_units: 1 }
   )"));
 }
 
 TEST_F (DaemonTests, WrongAccountSent)
 {
-  TestDaemon d(0);
+  TestDaemon d(assets, 0);
   DirectOrderSender sender(1);
+
+  assets.InitialiseAccount ("xmpptest2");
 
   sender.SendOrders (R"(
     account: "foo"
     orders:
       {
         key: 0
-        value: { asset: "gold" type: BID price_sat: 10 }
+        value: { asset: "gold" type: BID price_sat: 10 max_units: 1 }
       }
   )");
 
   SleepSome ();
   EXPECT_THAT (d.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest2" id: 0 price_sat: 10 }
+    bids: { account: "xmpptest2" id: 0 price_sat: 10 max_units: 1 }
   )"));
 }
 
 TEST_F (DaemonTests, Timeout)
 {
-  TestDaemon d1(0), d2(1);
+  TestDaemon d1(assets, 0), d2(assets, 1);
   DirectOrderSender sender(2);
+
+  assets.SetBalance ("xmpptest1", "gold", 10);
+  assets.InitialiseAccount ("xmpptest3");
 
   sender.SendOrders (R"(
     orders:
       {
         key: 0
-        value: { asset: "gold" type: BID price_sat: 10 }
+        value: { asset: "gold" type: BID price_sat: 10 max_units: 1 }
       }
   )");
   d1.AddFromText (R"(
-    asset: "gold" type: ASK price_sat: 50
+    asset: "gold" type: ASK price_sat: 50 max_units: 1
   )");
 
   SleepSome ();
   EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    bids: { account: "xmpptest3" id: 0 price_sat: 10 }
-    asks: { account: "xmpptest1" id: 0 price_sat: 50 }
+    bids: { account: "xmpptest3" id: 0 price_sat: 10 max_units: 1 }
+    asks: { account: "xmpptest1" id: 0 price_sat: 50 max_units: 1 }
   )"));
 
   std::this_thread::sleep_for (3 * TIMEOUT);
   EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
     asset: "gold"
-    asks: { account: "xmpptest1" id: 0 price_sat: 50 }
+    asks: { account: "xmpptest1" id: 0 price_sat: 50 max_units: 1 }
+  )"));
+}
+
+TEST_F (DaemonTests, OrderValidation)
+{
+  TestDaemon d(assets, 0);
+  DirectOrderSender sender(1);
+
+  // xmpptest1 is not (yet) initialised
+  assets.SetBalance ("xmpptest2", "gold", 10);
+
+  d.AddFromText (R"(
+    asset: "gold" type: BID price_sat: 10
+  )");
+  sender.SendOrders (R"(
+    orders:
+      {
+        key: 0
+        value: { asset: "gold" type: ASK price_sat: 10 max_units: 11 }
+      }
+    orders:
+      {
+        key: 1
+        value: { asset: "gold" type: ASK price_sat: 20 max_units: 10 }
+      }
+    orders:
+      {
+        key: 2
+        value: { asset: "invalid" type: BID price_sat: 1 max_units: 1 }
+      }
+    orders:
+      {
+        key: 3
+        value: { asset: "silver" type: BID price_sat: 5 max_units: 100 }
+      }
+    orders:
+      {
+        key: 4
+        value: { asset: "silver" type: BID price_sat: 1 }
+      }
+    orders:
+      {
+        key: 5
+        value: { asset: "silver" type: BID max_units: 1 }
+      }
+    orders:
+      {
+        key: 6
+        value: { asset: "silver" type: BID price_sat: 1 max_units: 0 }
+      }
+    orders:
+      {
+        key: 7
+        value:
+          {
+            asset: "silver"
+            type: BID
+            price_sat: 1
+            min_units: 3
+            max_units: 2
+          }
+      }
+  )");
+
+  SleepSome ();
+  EXPECT_THAT (d.GetOwnOrders (), EqualsOrdersOfAccount (R"(
+    account: "xmpptest1"
+  )"));
+  EXPECT_THAT (d.GetOrdersByAsset (), EqualsOrdersByAsset (R"(
+    assets:
+      {
+        key: "gold"
+        value:
+          {
+            asset: "gold"
+            asks: { account: "xmpptest2" id: 1 price_sat: 20 max_units: 10 }
+          }
+      }
+    assets:
+      {
+        key: "silver"
+        value:
+          {
+            asset: "silver"
+            bids: { account: "xmpptest2" id: 3 price_sat: 5 max_units: 100 }
+          }
+      }
   )"));
 }
 

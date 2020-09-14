@@ -84,4 +84,54 @@ SleepSome ()
   std::this_thread::sleep_for (std::chrono::milliseconds (10));
 }
 
+constexpr const char* TestAssets::GAME_ID;
+
+std::string
+TestAssets::GetGameId () const
+{
+  return GAME_ID;
+}
+
+bool
+TestAssets::IsAsset (const Asset& asset) const
+{
+  return asset == "gold" || asset == "silver" || asset == "bronze";
+}
+
+bool
+TestAssets::CanSell (const std::string& name, const Asset& asset,
+                     const Amount n, xaya::uint256& hash) const
+{
+  const auto mitAccount = balances.find (name);
+  if (mitAccount == balances.end ())
+    return false;
+
+  const auto& account = mitAccount->second;
+  const auto mitAsset = account.find (asset);
+  if (mitAsset == account.end ())
+    return false;
+
+  hash = currentHash;
+  return n <= mitAsset->second;
+}
+
+bool
+TestAssets::CanBuy (const std::string& name, const Asset& asset,
+                    const Amount n) const
+{
+  return balances.count (name) > 0;
+}
+
+Json::Value
+TestAssets::GetTransferMove (const std::string& sender,
+                             const std::string& receiver,
+                             const Asset& asset, const Amount n) const
+{
+  Json::Value res(Json::objectValue);
+  res["to"] = receiver;
+  res["asset"] = asset;
+  res["amount"] = static_cast<Json::Int64> (n);
+  return res;
+}
+
 } // namespace democrit
