@@ -23,6 +23,7 @@ libdemocrit_la_SOURCES = \
   authenticator.cpp \
   daemon.cpp \
   intervaljob.cpp \
+  json.cpp \
   mucclient.cpp \
   myorders.cpp \
   orderbook.cpp \
@@ -30,7 +31,8 @@ libdemocrit_la_SOURCES = \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp \
-  daemon.hpp
+  daemon.hpp \
+  json.hpp
 proto_HEADERS = $(PROTOHEADERS)
 noinst_HEADERS = \
   private/authenticator.hpp \
@@ -57,6 +59,7 @@ tests_SOURCES = \
   authenticator_tests.cpp \
   daemon_tests.cpp \
   intervaljob_tests.cpp \
+  json_tests.cpp \
   mucclient_tests.cpp \
   myorders_tests.cpp \
   orderbook_tests.cpp \
