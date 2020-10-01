@@ -1,6 +1,7 @@
 lib_LTLIBRARIES = libdemocrit.la
 democritdir = $(includedir)/democrit
 protodir = $(democritdir)/proto
+rpcstubdir = $(democritdir)/rpc-stubs
 
 PROTOS = \
   proto/orders.proto \
@@ -8,17 +9,22 @@ PROTOS = \
 PROTOHEADERS = $(PROTOS:.proto=.pb.h)
 PROTOSOURCES = $(PROTOS:.proto=.pb.cc)
 
-EXTRA_DIST = $(PROTOS)
+EXTRA_DIST = \
+  rpc-stubs/daemon.json \
+  $(PROTOS)
 
-BUILT_SOURCES = $(PROTOHEADERS)
-CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES)
+RPC_STUBS = rpc-stubs/daemonrpcserverstub.h
+BUILT_SOURCES = $(PROTOHEADERS) $(RPC_STUBS)
+CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES) $(RPC_STUBS)
 
 libdemocrit_la_CXXFLAGS = \
   $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) \
-  $(JSON_CFLAGS) $(PROTOBUF_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
+  $(JSON_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
+  $(PROTOBUF_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
 libdemocrit_la_LIBADD = \
   $(CHARON_LIBS) $(XAYAGAME_LIBS) \
-  $(JSON_LIBS) $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
+  $(JSON_LIBS) $(JSONRPCCPPSERVER_LIBS) \
+  $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
   daemon.cpp \
@@ -27,13 +33,16 @@ libdemocrit_la_SOURCES = \
   mucclient.cpp \
   myorders.cpp \
   orderbook.cpp \
+  rpcserver.cpp \
   stanzas.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp \
   daemon.hpp \
-  json.hpp
+  json.hpp \
+  rpcserver.hpp
 proto_HEADERS = $(PROTOHEADERS)
+rpcstub_HEADERS = $(RPC_STUBS)
 noinst_HEADERS = \
   private/authenticator.hpp \
   private/intervaljob.hpp \
@@ -69,3 +78,6 @@ check_HEADERS = \
 
 proto/%.pb.h proto/%.pb.cc: $(srcdir)/proto/%.proto
 	protoc -I$(srcdir)/proto --cpp_out=proto "$<"
+
+rpc-stubs/daemonrpcserverstub.h: $(srcdir)/rpc-stubs/daemon.json
+	jsonrpcstub "$<" --cpp-server=DaemonRpcServerStub --cpp-server-file="$@"

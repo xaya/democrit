@@ -93,6 +93,16 @@ public:
   proto::OrdersOfAccount GetOwnOrders () const;
 
   /**
+   * Returns the account name this is running for.
+   */
+  std::string GetAccount () const;
+
+  /**
+   * Returns the AssetSpec used.
+   */
+  const AssetSpec& GetAssetSpec () const;
+
+  /**
    * Returns true if the client is currently connected to the XMPP network.
    * It will try to reconnect periodically, but this can be used to give
    * status information for the "current state".

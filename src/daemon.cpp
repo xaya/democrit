@@ -306,6 +306,24 @@ Daemon::GetOwnOrders () const
   return impl->myOrders.GetOrders ();
 }
 
+std::string
+Daemon::GetAccount () const
+{
+  std::string res;
+  impl->state.ReadState ([&] (const proto::State& s)
+    {
+      res = s.account ();
+    });
+
+  return res;
+}
+
+const AssetSpec&
+Daemon::GetAssetSpec () const
+{
+  return impl->spec;
+}
+
 bool
 Daemon::IsConnected () const
 {
