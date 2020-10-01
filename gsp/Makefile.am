@@ -23,11 +23,11 @@ LIBHEADERS = \
 
 democrit_gsp_CXXFLAGS = \
   $(JSON_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
-  $(GLOGS_CFLAGS) $(GFLAGS_CFLAGS)
+  $(GLOG_CFLAGS) $(GFLAGS_CFLAGS)
 democrit_gsp_LDADD = \
   $(builddir)/libgsp.la \
   $(JSON_LIBS) $(JSONRPCCPPSERVER_LIBS) \
-  $(GLAGS_LIBS) $(GFLAGS_LIBS)
+  $(GLOG_LIBS) $(GFLAGS_LIBS)
 democrit_gsp_SOURCES = main.cpp \
   rpcserver.cpp
 BINHEADERS = \

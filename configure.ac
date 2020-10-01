@@ -35,6 +35,7 @@ AX_PKG_CHECK_MODULES([GLOG], [], [libglog])
 AX_PKG_CHECK_MODULES([CHARON], [], [charon gloox])
 
 # Private dependencies for tests and binaries only.
+PKG_CHECK_MODULES([JSONRPCCPPCLIENT], [libjsonrpccpp-client])
 PKG_CHECK_MODULES([JSONRPCCPPSERVER], [libjsonrpccpp-server])
 PKG_CHECK_MODULES([GFLAGS], [gflags])
 PKG_CHECK_MODULES([GTEST], [gmock gtest_main])
@@ -42,6 +43,7 @@ PKG_CHECK_MODULES([GTEST], [gmock gtest_main])
 AC_CONFIG_FILES([
   Makefile \
   gsp/Makefile \
+  nonfungible/Makefile \
   src/Makefile
 ])
 AC_OUTPUT

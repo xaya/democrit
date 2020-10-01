@@ -30,3 +30,5 @@ Makefile.in
 *.trs
 *.pb.h
 *.pb.cc
+
+*/rpc-stubs/*.h
