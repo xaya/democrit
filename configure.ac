@@ -44,7 +44,8 @@ AC_CONFIG_FILES([
   Makefile \
   gsp/Makefile \
   nonfungible/Makefile \
-  src/Makefile
+  src/Makefile \
+  tests/Makefile
 ])
 AC_OUTPUT
 
