@@ -1,0 +1,132 @@
+/*
+    Democrit - atomic trades for XAYA games
+    Copyright (C) 2020  Autonomous Worlds Ltd
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+syntax = "proto2";
+
+package democrit.proto;
+
+/**
+ * An order that is open on the orderbook.
+ */
+message Order
+{
+
+  /**
+   * The user account (p/ name without prefix) that this order is from.
+   * This field may be missing if it is implied from the context, e.g.
+   * by being part of a map keyed by name or when sent from the corresponding
+   * account in an update to its orders.
+   */
+  optional string account = 1;
+
+  /**
+   * An ID for this order, which should be unique for the account.  It is
+   * chosen by the owner of the order, and is used to identify the order
+   * when a taker contacts the maker.
+   *
+   * May be missing if implied from the context, e.g. because the message
+   * is part of a map keyed by ID.
+   */
+  optional uint64 id = 2;
+
+  /**
+   * The asset this is about.  May be missing if it is implied from the
+   * context, e.g. if this is returned as part of the orderbook for
+   * a particular asset.
+   */
+  optional string asset = 3;
+
+  /** The minimum number of units to be traded (or missing if none).  */
+  optional uint64 min_units = 4;
+
+  /** The maximum number of units to be traded.  */
+  optional uint64 max_units = 5;
+
+  /** Type for an order.  */
+  enum Type
+  {
+    /** This is an ask, i.e. someone trying to sell.  */
+    ASK = 1;
+    /** This is a bid, i.e. someone trying to buy.  */
+    BID = 2;
+  }
+
+  /**
+   * Type of this order.  May be missing if implied from the context, e.g.
+   * if this is returned as part of the sorted bids or asks of a particular
+   * asset's orderbook.
+   */
+  optional Type type = 6;
+
+  /** Price per unit (in CHI satoshi).  */
+  optional uint64 price_sat = 7;
+
+}
+
+/**
+ * The entire set of orders for a given account.  This is used in messages
+ * updating the orders through broadcasts, and also as return value if
+ * querying for e.g. "my orders" or in general the orders of one account.
+ */
+message OrdersOfAccount
+{
+
+  /**
+   * The account this is about.  This is usually redundant and known from
+   * the context as well, but is still set here for clarity.
+   */
+  optional string account = 1;
+
+  /**
+   * All orders of this account keyed by their ID.  The messages here do not
+   * include the "account" and "id" fields.
+   */
+  map<uint64, Order> orders = 2;
+
+}
+
+/**
+ * The orderbook for one particular asset.
+ */
+message OrderbookForAsset
+{
+
+  /** The asset this is about.  */
+  optional string asset = 1;
+
+  /**
+   * The list of bids, sorted by decreasing price.  The entries do not
+   * include the "asset" and "type" fields.
+   */
+  repeated Order bids = 2;
+
+  /** The list of asks, sorted by increasing price.  */
+  repeated Order asks = 3;
+
+}
+
+/**
+ * The entire orderbook, by asset.
+ */
+message OrderbookByAsset
+{
+
+  /** The map from assets to orderbooks for them.  */
+  map<string, OrderbookForAsset> assets = 1;
+
+}

@@ -16,6 +16,7 @@ libtool
 ltmain.sh
 m4
 missing
+py-compile
 stamp-h1
 test-driver
 
@@ -24,6 +25,11 @@ Makefile.in
 
 .deps
 .libs
+.dirstamp
 *.la
 *.lo
 *.trs
+*.pb.h
+*.pb.cc
+
+*/rpc-stubs/*.h

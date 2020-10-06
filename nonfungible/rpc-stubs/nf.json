@@ -1,0 +1,16 @@
+[
+  {
+    "name": "getassetdetails",
+    "params": [{"m": "domob", "a": "foo"}],
+    "returns": {}
+  },
+  {
+    "name": "getbalance",
+    "params":
+      {
+        "asset": {},
+        "name": "daniel"
+      },
+    "returns": {}
+  }
+]

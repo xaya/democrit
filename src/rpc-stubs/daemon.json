@@ -1,0 +1,47 @@
+[
+  {
+    "name": "stop",
+    "params": {}
+  },
+  {
+    "name": "getstatus",
+    "params": {},
+    "returns": {}
+  },
+
+  {
+    "name": "getordersforasset",
+    "params":
+      {
+        "asset": "foo"
+      },
+    "returns": {}
+  },
+  {
+    "name": "getordersbyasset",
+    "params": {},
+    "returns": {}
+  },
+
+  {
+    "name": "getownorders",
+    "params": {},
+    "returns": {}
+  },
+  {
+    "name": "addorder",
+    "params":
+      {
+        "order": {}
+      },
+    "returns": true
+  },
+  {
+    "name": "cancelorder",
+    "params":
+      {
+        "id": 42
+      },
+    "returns": {}
+  }
+]

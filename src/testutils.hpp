@@ -19,8 +19,22 @@
 #ifndef DEMOCRIT_TESTUTILS_HPP
 #define DEMOCRIT_TESTUTILS_HPP
 
+#include "assetspec.hpp"
+#include "proto/orders.pb.h"
+
+#include <xayautil/uint256.hpp>
+
 #include <gloox/jid.h>
 
+#include <json/json.h>
+
+#include <glog/logging.h>
+#include <gmock/gmock.h>
+
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/util/message_differencer.h>
+
+#include <map>
 #include <string>
 
 namespace democrit
@@ -53,7 +67,7 @@ struct ServerConfiguration
   const char* muc;
 
   /** The test accounts.  */
-  TestAccount accounts[2];
+  TestAccount accounts[3];
 
 };
 
@@ -88,6 +102,102 @@ gloox::JID GetRoom (const std::string& nm);
  * some things in tests.
  */
 void SleepSome ();
+
+/**
+ * Parses a protocol buffer from text format.
+ */
+template <typename Proto>
+  Proto
+  ParseTextProto (const std::string& str)
+{
+  Proto res;
+  CHECK (google::protobuf::TextFormat::ParseFromString (str, &res));
+  return res;
+}
+
+MATCHER_P (EqualsOrdersForAsset, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrderbookForAsset> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
+}
+
+MATCHER_P (EqualsOrdersByAsset, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrderbookByAsset> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
+}
+
+MATCHER_P (EqualsOrdersOfAccount, str, "")
+{
+  const auto expected = ParseTextProto<proto::OrdersOfAccount> (str);
+  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
+    return true;
+
+  *result_listener << "actual: " << arg.DebugString ();
+  return false;
+}
+
+/**
+ * Very simple AssetSpec to be used in testing.  It defines three valid
+ * assets, "silver", "gold" and "bronze".  It also keeps track of the balances
+ * each account has in either (which also acts as initialisation for accounts
+ * with zero balance).  Everyone can buy who has been initialised, and everyone
+ * can sell up to their balance.
+ */
+class TestAssets : public AssetSpec
+{
+
+private:
+
+  /** Balances of each account (which are themselves a map for the assets).  */
+  std::map<std::string, std::map<Asset, Amount>> balances;
+
+  /** Block hash returned for the state.  */
+  xaya::uint256 currentHash;
+
+public:
+
+  static constexpr const char* GAME_ID = "test";
+
+  TestAssets () = default;
+
+  void
+  SetBlock (const xaya::uint256& hash)
+  {
+    currentHash = hash;
+  }
+
+  void
+  SetBalance (const std::string& name, const Asset& asset, const Amount n)
+  {
+    balances[name][asset] = n;
+  }
+
+  void
+  InitialiseAccount (const std::string& name)
+  {
+    balances[name];
+  }
+
+  std::string GetGameId () const override;
+  bool IsAsset (const Asset& asset) const override;
+  bool CanSell (const std::string& name, const Asset& asset, Amount n,
+                xaya::uint256& hash) const override;
+  bool CanBuy (const std::string& name, const Asset& asset,
+               Amount n) const override;
+  Json::Value GetTransferMove (const std::string& sender,
+                               const std::string& receiver,
+                               const Asset& asset, Amount n) const override;
+
+};
 
 } // namespace democrit
 
