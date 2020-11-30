@@ -20,36 +20,8 @@
 
 #include <glog/logging.h>
 
-#include <sqlite3.h>
-
 namespace dem
 {
-
-namespace
-{
-
-/**
- * Binds a string parameter in an SQLite prepared statement.
- */
-void
-BindString (sqlite3_stmt* stmt, const int pos, const std::string& val)
-{
-  CHECK_EQ (sqlite3_bind_text (stmt, pos, &val[0], val.size (),
-                               SQLITE_TRANSIENT),
-            SQLITE_OK);
-}
-
-/**
- * Retrieves a column value from an SQLite statement as string.
- */
-std::string
-GetStringColumn (sqlite3_stmt* stmt, const int pos)
-{
-  const unsigned char* str = sqlite3_column_text (stmt, pos);
-  return reinterpret_cast<const char*> (str);
-}
-
-} // anonymous namespace
 
 void
 DemGame::SetupSchema (xaya::SQLiteDatabase& db)
@@ -58,14 +30,13 @@ DemGame::SetupSchema (xaya::SQLiteDatabase& db)
      the set of executed trades.  Each trade is identified by the seller's name
      (who sent the move) and the seller-chosen ID string for it.  IDs are
      assumed to be unique per seller name, but not forced to be so.  */
-  auto* stmt = db.Prepare (R"(
+  db.Execute (R"(
     CREATE TABLE IF NOT EXISTS `trades` (
       `seller_name` TEXT,
       `seller_id` TEXT,
       PRIMARY KEY (`seller_name`, `seller_id`)
     )
   )");
-  CHECK_EQ (sqlite3_step (stmt), SQLITE_DONE);
 }
 
 void
@@ -124,7 +95,7 @@ DemGame::ParseMove (const Json::Value& mv, std::string& name,
 void
 DemGame::UpdateState (xaya::SQLiteDatabase& db, const Json::Value& blockData)
 {
-  auto* stmt = db.Prepare (R"(
+  auto stmt = db.Prepare (R"(
     INSERT OR REPLACE INTO `trades`
       (`seller_name`, `seller_id`)
       VALUES (?1, ?2)
@@ -145,32 +116,27 @@ DemGame::UpdateState (xaya::SQLiteDatabase& db, const Json::Value& blockData)
           << "  Seller name: " << name << "\n"
           << "  Seller ID: " << tradeId;
 
-      sqlite3_reset (stmt);
-      BindString (stmt, 1, name);
-      BindString (stmt, 2, tradeId);
-      CHECK_EQ (sqlite3_step (stmt), SQLITE_DONE);
+      stmt.Bind (1, name);
+      stmt.Bind (2, tradeId);
+      stmt.Execute ();
+      stmt.Reset ();
     }
 }
 
 Json::Value
 DemGame::GetStateAsJson (const xaya::SQLiteDatabase& db)
 {
-  auto* stmt = db.PrepareRo (R"(
+  auto stmt = db.PrepareRo (R"(
     SELECT `seller_name`, `seller_id`
       FROM `trades`
       ORDER BY `seller_name`, `seller_id`
   )");
 
   Json::Value res(Json::objectValue);
-  while (true)
+  while (stmt.Step ())
     {
-      const int rc = sqlite3_step (stmt);
-      if (rc == SQLITE_DONE)
-        break;
-      CHECK_EQ (rc, SQLITE_ROW);
-
-      const std::string name = GetStringColumn (stmt, 0);
-      const std::string tradeId = GetStringColumn (stmt, 1);
+      const auto name = stmt.Get<std::string> (0);
+      const auto tradeId = stmt.Get<std::string> (1);
 
       if (!res.isMember (name))
         res[name] = Json::Value (Json::arrayValue);
@@ -209,19 +175,19 @@ DemGame::CheckTrade (const xaya::Game& g, const std::string& name,
   const Json::Value confirmed = GetCustomStateData (g, "data",
       [&name, &tradeId] (const xaya::SQLiteDatabase& db)
       {
-        auto* stmt = db.PrepareRo (R"(
+        auto stmt = db.PrepareRo (R"(
           SELECT COUNT(*)
             FROM `trades`
             WHERE `seller_name` = ?1 AND `seller_id` = ?2
         )");
-        BindString (stmt, 1, name);
-        BindString (stmt, 2, tradeId);
+        stmt.Bind (1, name);
+        stmt.Bind (2, tradeId);
 
-        CHECK_EQ (sqlite3_step (stmt), SQLITE_ROW);
-        const int cnt = sqlite3_column_int (stmt, 0);
+        CHECK (stmt.Step ());
+        const auto cnt = stmt.Get<int> (0);
         CHECK_GE (cnt, 0);
         CHECK_LE (cnt, 1);
-        CHECK_EQ (sqlite3_step (stmt), SQLITE_DONE);
+        CHECK (!stmt.Step ());
 
         return cnt > 0;
       })["data"];
