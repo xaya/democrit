@@ -58,6 +58,12 @@ private:
    */
   void RunRefresh ();
 
+  /**
+   * Internal implementation of GetOrders (returns all own orders),
+   * which allows specifying whether to include locked orders or not.
+   */
+  proto::OrdersOfAccount InternalGetOrders (bool includeLocked) const;
+
 protected:
 
   /**
@@ -105,9 +111,34 @@ public:
   void RemoveById (uint64_t id);
 
   /**
-   * Returns the current set of own orders.
+   * Tries to "lock" an order by ID.  If the order is not locked (and exists),
+   * this returns true, locks the order and sets the output argument to the
+   * order's value (including setting the account).  If the order does not
+   * exist or is already locked, it returns false.
+   *
+   * Locked orders are not broadcast as available own orders to the network.
+   * They are currently being taken by someone, but the trade has not been
+   * finalised and can be cancelled immediately (i.e. we have not yet provided
+   * our signatures).  This is used to avoid race conditions when taking
+   * orders, while still not removing them permanently in case the trade
+   * gets stalled immediately by the other party.
    */
-  proto::OrdersOfAccount GetOrders () const;
+  bool TryLock (uint64_t id, proto::Order& out);
+
+  /**
+   * Unlocks a previously locked order.  This makes it available again to
+   * be taken by anyone, and makes us broadcast it.
+   */
+  void Unlock (uint64_t id);
+
+  /**
+   * Returns the current set of own orders.  This includes locked orders.
+   */
+  proto::OrdersOfAccount
+  GetOrders () const
+  {
+    return InternalGetOrders (true);
+  }
 
 };
 

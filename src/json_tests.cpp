@@ -116,11 +116,25 @@ TEST_F (JsonTests, OrderToJson)
     max_units: 1
     price_sat: 2
     type: ASK
+    locked: false
   )", R"({
     "min_units": 1,
     "max_units": 1,
     "price_sat": 2,
     "type": "ask"
+  })");
+
+  ExpectProtoToJson<proto::Order> (R"(
+    max_units: 1
+    price_sat: 2
+    type: ASK
+    locked: true
+  )", R"({
+    "min_units": 1,
+    "max_units": 1,
+    "price_sat": 2,
+    "type": "ask",
+    "locked": true
   })");
 }
 

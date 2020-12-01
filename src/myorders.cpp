@@ -51,7 +51,7 @@ MyOrders::RunRefresh ()
       s.mutable_own_orders ()->Swap (&updated);
     });
 
-  UpdateOrders (GetOrders ());
+  UpdateOrders (InternalGetOrders (false));
 }
 
 bool
@@ -97,13 +97,63 @@ MyOrders::RemoveById (const uint64_t id)
   RunRefresh ();
 }
 
+bool
+MyOrders::TryLock (const uint64_t id, proto::Order& out)
+{
+  bool res = false;
+  state.AccessState ([this, id, &res, &out] (proto::State& s)
+    {
+      auto mit = s.mutable_own_orders ()->mutable_orders ()->find (id);
+      if (mit == s.mutable_own_orders ()->mutable_orders ()->end ())
+        {
+          LOG (WARNING) << "Can't lock non-existing order with ID " << id;
+          return;
+        }
+
+      if (mit->second.locked ())
+        {
+          LOG (WARNING) << "Order with ID " << id << " is already locked";
+          return;
+        }
+
+      VLOG (1) << "Locking order with ID " << id;
+      out = mit->second;
+      out.set_account (s.account ());
+      out.set_id (id);
+      mit->second.set_locked (true);
+      res = true;
+      return;
+    });
+
+  if (res)
+    RunRefresh ();
+  return res;
+}
+
+void
+MyOrders::Unlock (const uint64_t id)
+{
+  state.AccessState ([this, id] (proto::State& s)
+    {
+      auto mit = s.mutable_own_orders ()->mutable_orders ()->find (id);
+      CHECK (mit != s.mutable_own_orders ()->mutable_orders ()->end ())
+          << "Order with ID " << id << " doesn't exist";
+      CHECK (mit->second.locked ()) << "Order " << id << " isn't locked";
+      mit->second.clear_locked ();
+    });
+
+  RunRefresh ();
+}
+
 proto::OrdersOfAccount
-MyOrders::GetOrders () const
+MyOrders::InternalGetOrders (const bool includeLocked) const
 {
   proto::OrdersOfAccount res;
-  state.ReadState ([&res] (const proto::State& s)
+  state.ReadState ([&res, includeLocked] (const proto::State& s)
     {
-      res = s.own_orders ();
+      for (const auto& entry : s.own_orders ().orders ())
+        if (includeLocked || !entry.second.locked ())
+          res.mutable_orders ()->insert (entry);
       res.set_account (s.account ());
     });
 

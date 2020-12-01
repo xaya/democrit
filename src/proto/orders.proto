@@ -76,6 +76,14 @@ message Order
   /** Price per unit (in CHI satoshi).  */
   optional uint64 price_sat = 7;
 
+  /**
+   * For orders owned by the current user, this indicates that they are
+   * temporarily "locked".  This is the case when someone tries to take
+   * them and before the trade has been fully initiated (at which point
+   * the order is cancelled instead).
+   */
+  optional bool locked = 8;
+
 }
 
 /**

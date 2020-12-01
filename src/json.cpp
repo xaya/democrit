@@ -80,6 +80,9 @@ template <>
         LOG (FATAL) << "Invalid order type: " << static_cast<int> (pb.type ());
       }
 
+  if (pb.locked ())
+    res["locked"] = true;
+
   return res;
 }
 

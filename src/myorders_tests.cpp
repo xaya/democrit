@@ -22,6 +22,7 @@
 #include "testutils.hpp"
 
 #include <gmock/gmock.h>
+#include <google/protobuf/util/message_differencer.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -30,6 +31,10 @@ namespace democrit
 {
 namespace
 {
+
+using google::protobuf::util::MessageDifferencer;
+
+DEFINE_PROTO_MATCHER (EqualsOrder, Order)
 
 /** Refresher interval used in (most) tests.  */
 constexpr auto REFRESH_INTV = std::chrono::milliseconds (10);
@@ -110,6 +115,16 @@ public:
   }
 
   /**
+   * Compares the actual orders (per GetOrders) with the ones pushed
+   * last via UpdateOrders and expects them to be equal.
+   */
+  void
+  ExpectOrdersUpdated ()
+  {
+    ASSERT_TRUE (MessageDifferencer::Equals (GetLastOrders (), GetOrders ()));
+  }
+
+  /**
    * Marks an asset as invalid for order validation.
    */
   void
@@ -177,6 +192,7 @@ TEST_F (MyOrdersTests, Changes)
         value: { asset: "gold" type: ASK price_sat: 20 }
       }
   )"));
+  mo.ExpectOrdersUpdated ();
 
   mo.RemoveById (102);
   EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
@@ -187,6 +203,7 @@ TEST_F (MyOrdersTests, Changes)
         value: { asset: "gold" type: BID price_sat: 10 }
       }
   )"));
+  mo.ExpectOrdersUpdated ();
 
   mo.RemoveById (42);
   EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
@@ -279,6 +296,84 @@ TEST_F (MyOrdersTests, Validation)
         value: { asset: "not invalid" type: BID price_sat: 10 }
       }
   )"));
+}
+
+TEST_F (MyOrdersTests, Locking)
+{
+  TestMyOrders mo(state, NO_REFRESH);
+
+  AddOrder (mo, R"(
+    asset: "gold"
+    type: BID
+    price_sat: 10
+  )");
+  AddOrder (mo, R"(
+    asset: "gold"
+    type: ASK
+    price_sat: 20
+  )");
+  EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 101
+        value: { asset: "gold" type: BID price_sat: 10 }
+      }
+    orders:
+      {
+        key: 102
+        value: { asset: "gold" type: ASK price_sat: 20 }
+      }
+  )"));
+
+  proto::Order o;
+  ASSERT_TRUE (mo.TryLock (101, o));
+  EXPECT_THAT (o, EqualsOrder (R"(
+    account: "domob"
+    id: 101
+    asset: "gold"
+    type: BID
+    price_sat: 10
+  )"));
+  EXPECT_FALSE (mo.TryLock (101, o));
+  EXPECT_FALSE (mo.TryLock (1'234, o));
+  EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 101
+        value: { asset: "gold" type: BID price_sat: 10 locked: true }
+      }
+    orders:
+      {
+        key: 102
+        value: { asset: "gold" type: ASK price_sat: 20 }
+      }
+  )"));
+  EXPECT_THAT (mo.GetLastOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 102
+        value: { asset: "gold" type: ASK price_sat: 20 }
+      }
+  )"));
+
+  mo.Unlock (101);
+  EXPECT_THAT (mo.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "domob"
+    orders:
+      {
+        key: 101
+        value: { asset: "gold" type: BID price_sat: 10 }
+      }
+    orders:
+      {
+        key: 102
+        value: { asset: "gold" type: ASK price_sat: 20 }
+      }
+  )"));
+  mo.ExpectOrdersUpdated ();
 }
 
 /* ************************************************************************** */
