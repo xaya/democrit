@@ -1,0 +1,239 @@
+/*
+    Democrit - atomic trades for XAYA games
+    Copyright (C) 2020  Autonomous Worlds Ltd
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+syntax = "proto2";
+
+import "orders.proto";
+
+package democrit.proto;
+
+/**
+ * Basic data about a trade.  This message is used in the public interface,
+ * i.e. to return to users of Democrit as a library (or the RPC interface
+ * in JSON form) what the state of a trade is.  It can be derived directly
+ * from a TradeState instance, which holds the real data as stored internally.
+ */
+message Trade
+{
+
+  /** State a trade can be in per the public interface.  */
+  enum State
+  {
+
+    /** The trade has been initiated, but we have not yet shared signatures.  */
+    INITIATED = 1;
+
+    /**
+     * We have shared our signatures with the counterparty (as the taker)
+     * or submitted the transaction to the network (as the maker).
+     */
+    PENDING = 2;
+
+    /** The trade has gone through and the transaction confirmed.  */
+    SUCCESS = 3;
+
+    /** The trade failed because an input was double spent.  */
+    FAILED = 4;
+
+    /**
+     * We have abandoned the trade.  This means that we have not yet shared
+     * our signatures with the counterparty, but have decided to stop proceeding
+     * further, e.g. because the counterparty timed out.
+     */
+    ABANDONED = 5;
+
+  }
+
+  /** The state this trade is in.  */
+  optional State state = 1;
+
+  /** The UNIX timestamp when this trade was started.  */
+  optional int64 start_time = 2;
+
+  /** The counterparty Xaya account name.  */
+  optional string counterparty = 3;
+
+  /**
+   * The type of order from our point of view.  For instance, if this is
+   * ASK, then we are selling and the counterparty is buying.
+   */
+  optional Order.Type type = 4;
+
+  /** The asset type being traded.  */
+  optional string asset = 5;
+
+  /** The number of units being traded.  */
+  optional uint64 units = 6;
+
+  /** The price per unit in CHI satoshi.  */
+  optional uint64 price_sat = 7;
+
+  /** A role that we can have in a trade.  */
+  enum Role
+  {
+
+    /** We are the maker (i.e. our order was taken by someone).  */
+    MAKER = 1;
+
+    /** We are the taker, trading against an order on the book.  */
+    TAKER = 2;
+
+  }
+
+  /** Our role in this trade.  */
+  optional Role role = 8;
+
+}
+
+/**
+ * A transaction outpoint / UTXO.
+ */
+message OutPoint
+{
+
+  /** The hash of the transaction that created the output (hex string).  */
+  optional string hash = 1;
+
+  /** The index of the output in the creating transaction's vout.  */
+  optional uint32 n = 2;
+
+}
+
+/**
+ * The data needed from the seller for constructing the transaction.
+ */
+message SellerData
+{
+
+  /** Address for sending the updated name to.  */
+  optional string name_address = 1;
+
+  /** Address for the CHI payment.  */
+  optional string chi_address = 2;
+
+  /**
+   * If we are the seller, then this contains the name output we intend
+   * to spend in the transaction (before receiving the buyer-constructed
+   * transaction) and also the one we locked for the trade in our wallet.
+   */
+  optional OutPoint name_output = 3;
+
+}
+
+/**
+ * State data that a party stores about a particular trade being negotiated
+ * or already finished (or failed).
+ */
+message TradeState
+{
+
+  /* ************************************************************************ */
+  /* Base data, which is always set from creation.  */
+
+  /**
+   * The order being taken.  This includes the main data specifying what
+   * we are expecting from the trade (e.g. the price).  It also includes
+   * the maker's account name and order ID, which can be used to identify
+   * the trade uniquely among all active trades.  (This is the case since
+   * the maker won't accept another taker until the previous trade is either
+   * abandoned or finished, and the taker also won't try to take an order
+   * twice unless they do something wrong.)
+   *
+   * Since we know our own account name and can match it with the account
+   * in the order, this field implicitly specifies what role (maker / taker)
+   * we have on this trade.
+   */
+  optional Order order = 1;
+
+  /**
+   * The amount to be traded.  This may be less than the maximum amount
+   * from order.
+   */
+  optional uint64 units = 2;
+
+  /**
+   * The counterparty's account name (used to match incoming messages
+   * and send outgoing ones).
+   */
+  optional string counterparty = 3;
+
+  /** UNIX timestamp for when the trade was started.  */
+  optional int64 start_time = 4;
+
+  /* ************************************************************************ */
+  /* Data that gets set/updated as it becomes available during processing.  */
+
+  /**
+   * The state of this trade.  This is used e.g. to know when a trade has
+   * been finalised (abandoned or confirmed success/failure).  The distinction
+   * between PENDING and INITIATED is used to determine wheter we have already
+   * provided our signatures to the counterparty / broadcast the transaction
+   * or it is still in progress of being built up.
+   */
+  optional Trade.State state = 5;
+
+  /**
+   * The seller's address data for this trade (if known already).  If we are
+   * the seller, we set this field as well once those have been sent.  This is
+   * useful to verify the buyer-constructed transaction (i.e. that it matches
+   * the data we asked for).
+   */
+  optional SellerData seller_data = 6;
+
+  /* We have two data fields that we use to keep track of the current
+     state and data while exchanging PSBTs with the counterparty.  Depending
+     on our role in the process:
+
+     - maker/buyer:  After constructing the transaction, we sign it and fill
+       in our_psbt with the partially signed transaction.  We share the
+       unsigned transaction with the counterparty to sign first.  When we
+       receive their signatures back, we fill in their_psbt and then
+       combine them and finalise the trade.
+
+     - maker/seller:  The counterparty will construct the transaction and
+       share the partially signed one right away with us.  Upon receipt,
+       we fill it into their_psbt.  Then when processing, we sign that
+       transaction, write the fully signed one into our_psbt, and
+       broadcast it.
+
+     - taker/buyer:  We construct the transaction, sign our part, and store
+       the partially signed transaction in our_psbt.  We then share this with
+       the counterparty, and wait for confirmation on the network.  their_psbt
+       is never used in this case.
+
+     - taker/seller:  The counterparty constructs the transaction and shares
+       an unsigned version with us, which we store in their_psbt.  We then
+       sign it from there, store the partially signed version into our_psbt,
+       send it back and wait for network confirmation.  */
+
+  /**
+   * The partially (or fully) signed transaction with our signatures
+   * as PSBT.  This field is always present if we have signed our part,
+   * and lets us e.g. check the transaction's inputs for double-spends
+   * as well as tells us the btxid of the trade.
+   */
+  optional string our_psbt = 7;
+
+  /**
+   * The partially signed transaction as we have received it from the
+   * counterparty, if we have received any so far.  This might be fully
+   * unsigned or have the counterparty's signatures on it already.
+   */
+  optional string their_psbt = 8;
+
+}

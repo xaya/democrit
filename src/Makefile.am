@@ -5,7 +5,8 @@ rpcstubdir = $(democritdir)/rpc-stubs
 
 PROTOS = \
   proto/orders.proto \
-  proto/state.proto
+  proto/state.proto \
+  proto/trades.proto
 PROTOHEADERS = $(PROTOS:.proto=.pb.h)
 PROTOSOURCES = $(PROTOS:.proto=.pb.cc)
 
