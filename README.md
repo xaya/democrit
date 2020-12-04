@@ -104,23 +104,26 @@ and confirmed.  (Even more importantly, they need to know if the trade
 try again with a different party.)
 
 Since they do not have the final transaction, they also do not know the
-txid of it yet (at least not for non-segwit transactions).  Thus, Democrit
-uses a custom dApp / GSP on XAYA to track executed trades.  The user preparing
-the transaction with a move to send game assets
-will simply include another "move" for Democrit itself, with a unique ID:
+`txid` of it yet (at least not for non-segwit transactions).  They can,
+however, use the [*bare hash* (`btxid`)](https://github.com/xaya/xaya/pull/105)
+of the transaction, since that won't change by the signatures of the
+counterparty and still identifies the trade uniquely.
+
+To utilise this, Democrit uses a custom dApp / GSP on XAYA to track executed
+trades by `btxid`.  All that needs to be done is mark the trade as also
+being a move for the `g/dem` game:
 
     {
       "g":
         {
           "main game": "send gold coins",
-          "dem": {"t": "abcxyz"}
+          "dem": {}
         }
     }
 
-Here, `abcxyz` is a string that the taker chooses, which should
-be unique at least for their name.  Then, Democrit will track all
-such trades that have gone through, and the taker can query the Democrit game
-state to see if the particular ID has executed or not.
+Democrit will track all such trades that have gone through, and the users can
+query the Democrit game state to see if the particular `btxid` has been
+executed or not (and if so, at what block height).
 
 ## Transaction Fees
 
@@ -163,16 +166,24 @@ the following steps are then performed in order to finalise the trade:
 
 1. The taker initiates the trade by contacting the maker and telling
    them the order and exact amount of asset they are interested in.
-   They also send a string for use as trade ID in the `g/dem` move.  This
-   string should be unique for their name (but need not be globally unique).
 1. If the taker is the seller, they also send two addresses of their wallet,
    one for the name output and one for receiving the payment in CHI.
 1. If the maker is the seller, they reply with those two addresses
    in a follow-up message.
+1. Before the seller sends their addresses, they also lock the name output
+   in their wallet (so it won't be accidentally spent through e.g. gameplay
+   while the trade is in progress).
+1. The buyer checks the game state to ensure that the seller can actually
+   send the assets as agreed in the game, and that the name output
+   they will use for the transaction has been created in the blockchain
+   before or up to the block at which they retrieved the game state.
 1. The buyer constructs the unsigned transaction based on the shared data,
    their own inputs and change address, and the move data for the trade.
    They also sign their inputs to the transaction and store the
    signatures locally.
+1. The buyer locks the CHI outputs used for funding the transaction
+   in their wallet to prevent accidentally spending them while the
+   trade is in progress.
 1. If the buyer is the taker, they add the signatures and share the
    partially signed transaction with the seller.  If the buyer is the maker,
    they share the *unsigned* transaction with the seller.
@@ -185,16 +196,20 @@ the following steps are then performed in order to finalise the trade:
 1. If the buyer is the maker, they add the previously stored signatures
    into the transaction and broadcast it.
 
-The taker marks the order as "in progress" when they send their partial
-transaction to the maker, and then watches the Democrit GSP to see when the
-trade goes through based on their chosen trade ID.  If it takes too long,
-they can cancel any time by just double spending one of their inputs
-(CHI or name).
-The maker constructs and broadcasts the final transaction, so they can
-track the progress simply through their wallet.  Thus they can also show the
-trade as "in progress" until it is confirmed.
+Note that both parties in this scheme know the full (unsigned) transaction
+before sharing their own signatures with the other party, so they can
+track the transaction by `btxid` in the Democrit GSP from that point on.
+If it takes too long, they can cancel any time by just double spending one
+of their inputs (CHI or name).  *Before* they shared their signatures
+with the counterparty, they can "cancel" the trade simply by abandoning it.
 
 Until the trade has gone through, both participants can check all the
 inputs of the transaction on the network to detect a potential double spend
 of any of them.  If this happens, they know the trade failed and their
 client can show it as such.
+
+If the trade failed and the double spend has been confirmed a sufficient
+number of times, or if one party decides to abandon the trade before
+sending their own signatures (e.g. because the counterparty timed out),
+they may unlock their inputs in the wallet again to make them available
+for other trades or general use.
