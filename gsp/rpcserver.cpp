@@ -44,21 +44,30 @@ RpcServer::getpendingstate ()
   return game.GetPendingJsonState ();
 }
 
-std::string
-RpcServer::checktrade (const std::string& name, const std::string& tradeId)
+Json::Value
+RpcServer::checktrade (const std::string& btxid)
 {
-  LOG (INFO) << "RPC method called: checktrade " << name << " " << tradeId;
-  switch (logic.CheckTrade (game, name, tradeId))
+  LOG (INFO) << "RPC method called: checktrade " << btxid;
+  const auto data = logic.CheckTrade (game, btxid);
+
+  Json::Value res(Json::objectValue);
+  switch (data.state)
     {
     case DemGame::TradeState::UNKNOWN:
-      return "unknown";
+      res["state"] = "unknown";
+      break;
     case DemGame::TradeState::PENDING:
-      return "pending";
+      res["state"] = "pending";
+      break;
     case DemGame::TradeState::CONFIRMED:
-      return "confirmed";
+      res["state"] = "confirmed";
+      res["height"] = static_cast<Json::Int> (data.confirmationHeight);
+      break;
     default:
       LOG (FATAL) << "Unexpected trade state";
     }
+
+  return res;
 }
 
 } // namespace dem

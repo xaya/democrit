@@ -36,8 +36,6 @@ private:
 
   /**
    * The current pending state.  It is already in the JSON form for simplicity.
-   * We can still look up by name efficiently, and then just need to iterate
-   * through all open trades of a single name (which shouldn't be many anyway).
    */
   Json::Value pending;
 

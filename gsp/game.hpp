@@ -33,7 +33,7 @@ namespace dem
 
 /**
  * SQLiteGame instance for the Democrit GSP (that just tracks pending / executed
- * trades based on the seller-provided IDs).
+ * trades based on the btxid).
  */
 class DemGame : public xaya::SQLiteGame
 {
@@ -41,11 +41,10 @@ class DemGame : public xaya::SQLiteGame
 private:
 
   /**
-   * Tries to parse and validate a move from the notification JSON object.
+   * Parses a move from the notification JSON object.
    * This is also used for pending moves.
    */
-  static bool ParseMove (const Json::Value& mv, std::string& name,
-                         std::string& tradeId);
+  static void ParseMove (const Json::Value& mv, std::string& btxid);
 
   friend class dem::PendingMoves;
 
@@ -77,10 +76,23 @@ public:
   };
 
   /**
-   * Queries for the state of the trade with given seller name and trade ID.
+   * Data for a particular trade.
    */
-  TradeState CheckTrade (const xaya::Game& g, const std::string& name,
-                         const std::string& tradeId);
+  struct TradeData
+  {
+
+    /** The state of the trade.  */
+    TradeState state;
+
+    /** If the trade is confirmed, the height at which it was confirmed.  */
+    unsigned confirmationHeight;
+
+  };
+
+  /**
+   * Queries for the state of the trade with given btxid.
+   */
+  TradeData CheckTrade (const xaya::Game& g, const std::string& btxid);
 
 };
 

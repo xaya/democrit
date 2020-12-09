@@ -38,10 +38,20 @@ class DemGspTest (XayaGameTest):
     time.sleep (0.05)
     self.assertEqual (self.getPendingState (), expected)
 
-  def expectState (self, name, tradeId, state):
+  def expectState (self, btxid, state):
     time.sleep (0.05)
-    self.assertEqual (self.rpc.game.checktrade (name=name, tradeid=tradeId),
-                      state)
+    self.assertEqual (self.rpc.game.checktrade (btxid), state)
+
+  def sendMove (self, name, mv={}):
+    """
+    Sends a move with the given name for our game.  The difference to the
+    normal method (per the superclass) is that it returns the btxid rather
+    than txid, since that is what we need later to query the game state.
+    """
+
+    txid = super ().sendMove (name, mv)
+    data = self.rpc.xaya.getrawtransaction (txid, True)
+    return data["btxid"]
 
   def run (self):
     self.collectPremine ()
@@ -52,105 +62,54 @@ class DemGspTest (XayaGameTest):
       for _ in range (5)
     }
     self.rpc.xaya.sendmany ("", sendTo)
-    self.generate (1)
+    self.generate (2)
     self.expectGameState ({})
     self.expectPending ({})
-    self.expectState ("foo", "c", "unknown")
-
-    self.mainLogger.info ("Sending some basic moves...")
-    self.sendMove ("foo", 42)
-    self.sendMove ("bar", {})
-    self.sendMove ("baz", {"t": 42})
-    self.sendMove ("foo", {"t": "c"})
-    self.sendMove ("baz", {"t": "b", "x": "ignored"})
-    self.expectPending ({
-      "foo": ["c"],
-      "baz": ["b"],
-    })
-    self.expectState ("foo", "c", "pending")
-    self.generate (1)
-    self.expectPending ({})
-    self.expectState ("foo", "a", "unknown")
-    self.sendMove ("foo", {"t": "a"})
-    self.expectPending ({
-      "foo": ["a"],
-    })
-    self.expectState ("foo", "a", "pending")
-    self.expectState ("foo", "c", "confirmed")
-    self.generate (1)
-    self.expectGameState ({
-      "foo": ["a", "c"],
-      "baz": ["b"],
-    })
+    unknownHash = "aa" * 32
+    self.expectState (unknownHash, {"state": "unknown"})
     reorgBlk = self.rpc.xaya.getbestblockhash ()
 
-    self.mainLogger.info ("Duplicate IDs are just ignored...")
-    self.sendMove ("foo", {"t": "c"})
-    self.sendMove ("foo", {"t": "c"})
-    self.sendMove ("baz", {"t": "b"})
+    self.mainLogger.info ("Sending some moves...")
+    id1 = self.sendMove ("foo")
+    id2 = self.sendMove ("bar", mv="42")
+    id3 = self.sendMove ("foo")
     self.expectPending ({
-      "foo": ["c"],
-      "baz": ["b"],
+      id1: {},
+      id2: {},
+      id3: {},
     })
-    self.expectState ("foo", "c", "confirmed")
+    self.expectState (id1, {"state": "pending"})
     self.generate (1)
+    height = self.rpc.xaya.getblockcount ()
+    self.generate (20)
+    self.expectPending ({})
     self.expectGameState ({
-      "foo": ["a", "c"],
-      "baz": ["b"],
+      id1: height,
+      id2: height,
+      id3: height,
     })
-
-    self.mainLogger.info ("Same ID with another name...")
-    self.expectState ("bar", "a", "unknown")
-    self.sendMove ("bar", {"t": "a"})
-    self.sendMove ("bar", {"t": "b"})
-    self.sendMove ("bar", {"t": "c"})
-    self.sendMove ("foo", {"t": "b"})
-    self.expectState ("foo", "a", "confirmed")
-    self.expectState ("bar", "a", "pending")
-    self.expectPending ({
-      "foo": ["b"],
-      "bar": ["a", "b", "c"],
-    })
-    self.generate (1)
-    self.expectGameState ({
-      "foo": ["a", "b", "c"],
-      "bar": ["a", "b", "c"],
-      "baz": ["b"],
-    })
-    self.expectState ("foo", "a", "confirmed")
-    self.expectState ("bar", "a", "confirmed")
+    self.expectState (id2, {"state": "confirmed", "height": height})
 
     self.mainLogger.info ("Testing reorg...")
-    self.generate (20)
     oldState = self.getGameState ()
     self.rpc.xaya.invalidateblock (reorgBlk)
 
-    self.expectGameState ({
-      "foo": ["c"],
-      "baz": ["b"],
-    })
-    self.expectState ("foo", "a", "unknown")
-    self.expectState ("foo", "c", "confirmed")
-    self.sendMove ("foo", {"t": "x"})
+    self.expectPending ({})
+    self.expectGameState ({})
+    self.expectState (id1, {"state": "unknown"})
+
+    self.generate (2)
+    idReorg = self.sendMove ("foo")
     self.generate (1)
-    self.sendMove ("baz", {"t": "y"})
-    self.expectState ("foo", "x", "confirmed")
-    self.expectState ("baz", "y", "pending")
-    self.expectPending ({
-      "baz": ["y"],
-    })
     self.expectGameState ({
-      "foo": ["c", "x"],
-      "baz": ["b"],
+      idReorg: height + 1,
     })
+    self.expectState (id1, {"state": "unknown"})
+    self.expectState (idReorg, {"state": "confirmed", "height": height + 1})
 
     self.rpc.xaya.reconsiderblock (reorgBlk)
     self.expectGameState (oldState)
-    self.expectPending ({})
-    self.expectState ("foo", "x", "unknown")
-    self.expectState ("baz", "y", "unknown")
-    self.expectState ("foo", "a", "confirmed")
-    self.expectState ("bar", "a", "confirmed")
+    self.expectState (idReorg, {"state": "unknown"})
 
 
 if __name__ == "__main__":

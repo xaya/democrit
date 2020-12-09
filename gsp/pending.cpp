@@ -40,22 +40,10 @@ PendingMoves::ToJson () const
 void
 PendingMoves::AddPendingMove (const Json::Value& mv)
 {
-  std::string name, tradeId;
-  if (!DemGame::ParseMove (mv, name, tradeId))
-    {
-      LOG (WARNING) << "Invalid pending move: " << mv;
-      return;
-    }
+  std::string btxid;
+  DemGame::ParseMove (mv, btxid);
 
-  if (!pending.isMember (name))
-    pending[name] = Json::Value (Json::arrayValue);
-  auto& arr = pending[name];
-  CHECK (arr.isArray ());
-
-  for (const auto& existing : arr)
-    if (existing.asString () == tradeId)
-      return;
-  arr.append (tradeId);
+  pending[btxid] = Json::Value (Json::objectValue);
 }
 
 } // namespace dem
