@@ -56,8 +56,7 @@ public:
   Json::Value getcurrentstate () override;
   Json::Value getpendingstate () override;
 
-  std::string checktrade (const std::string& name,
-                          const std::string& tradeId) override;
+  Json::Value checktrade (const std::string& btxid) override;
 
 };
 

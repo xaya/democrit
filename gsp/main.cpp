@@ -107,6 +107,10 @@ main (int argc, char** argv)
   config.EnablePruning = FLAGS_enable_pruning;
   config.DataDirectory = FLAGS_datadir;
 
+  /* We need support of the btxid, from https://github.com/xaya/xaya/pull/105.
+     This is included in 1.5 and up.  */
+  config.MinXayaVersion = 1050000;
+
   dem::DemGame logic;
   InstanceFactory instanceFact(logic);
   config.InstanceFactory = &instanceFact;

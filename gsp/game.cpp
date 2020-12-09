@@ -27,14 +27,12 @@ void
 DemGame::SetupSchema (xaya::SQLiteDatabase& db)
 {
   /* The data table that we need is really simple, as we just need to describe
-     the set of executed trades.  Each trade is identified by the seller's name
-     (who sent the move) and the seller-chosen ID string for it.  IDs are
-     assumed to be unique per seller name, but not forced to be so.  */
+     the map of executed trades (identified by btxid) to their confirmation
+     height.  */
   db.Execute (R"(
     CREATE TABLE IF NOT EXISTS `trades` (
-      `seller_name` TEXT,
-      `seller_id` TEXT,
-      PRIMARY KEY (`seller_name`, `seller_id`)
+      `btxid` TEXT NOT NULL PRIMARY KEY,
+      `height` INTEGER NOT NULL
     )
   )");
 }
@@ -46,9 +44,9 @@ DemGame::GetInitialStateBlock (unsigned& height, std::string& hashHex) const
   switch (chain)
     {
     case xaya::Chain::MAIN:
-      height = 1'700'000;
+      height = 2'350'000;
       hashHex
-          = "5792ddec8d414bbde8264bf67002215014c8432a6dc083b71fed0feffd5638b3";
+          = "c66f30db579e0aad429648f4cb7dd67648d007ae4313f265a406b88f043b3d93";
       break;
 
     case xaya::Chain::TEST:
@@ -74,50 +72,32 @@ DemGame::InitialiseState (xaya::SQLiteDatabase& db)
   /* We start with an empty set of trades.  */
 }
 
-bool
-DemGame::ParseMove (const Json::Value& mv, std::string& name,
-                    std::string& tradeId)
+void
+DemGame::ParseMove (const Json::Value& mv, std::string& btxid)
 {
-  name = mv["name"].asString ();
-  const auto& mvData = mv["move"];
-
-  if (!mvData.isObject ())
-    return false;
-
-  const auto& tradeIdVal = mvData["t"];
-  if (!tradeIdVal.isString ())
-    return false;
-  tradeId = tradeIdVal.asString ();
-
-  return true;
+  btxid = mv["btxid"].asString ();
 }
 
 void
 DemGame::UpdateState (xaya::SQLiteDatabase& db, const Json::Value& blockData)
 {
   auto stmt = db.Prepare (R"(
-    INSERT OR REPLACE INTO `trades`
-      (`seller_name`, `seller_id`)
+    INSERT INTO `trades`
+      (`btxid`, `height`)
       VALUES (?1, ?2)
   )");
 
+  const unsigned height = blockData["block"]["height"].asUInt ();
+
   for (const auto& entry : blockData["moves"])
     {
-      std::string name, tradeId;
-      if (!ParseMove (entry, name, tradeId))
-        {
-          LOG (WARNING) << "Invalid move data: " << entry;
-          continue;
-        }
+      std::string btxid;
+      ParseMove (entry, btxid);
 
-      LOG (INFO)
-          << "Finished trade:\n"
-          << "  Transaction: " << entry["txid"].asString () << "\n"
-          << "  Seller name: " << name << "\n"
-          << "  Seller ID: " << tradeId;
+      LOG (INFO) << "Finished trade btxid: " << btxid;
 
-      stmt.Bind (1, name);
-      stmt.Bind (2, tradeId);
+      stmt.Bind (1, btxid);
+      stmt.Bind (2, height);
       stmt.Execute ();
       stmt.Reset ();
     }
@@ -127,28 +107,24 @@ Json::Value
 DemGame::GetStateAsJson (const xaya::SQLiteDatabase& db)
 {
   auto stmt = db.PrepareRo (R"(
-    SELECT `seller_name`, `seller_id`
+    SELECT `btxid`, `height`
       FROM `trades`
-      ORDER BY `seller_name`, `seller_id`
+      ORDER BY `btxid`
   )");
 
   Json::Value res(Json::objectValue);
   while (stmt.Step ())
     {
-      const auto name = stmt.Get<std::string> (0);
-      const auto tradeId = stmt.Get<std::string> (1);
-
-      if (!res.isMember (name))
-        res[name] = Json::Value (Json::arrayValue);
-      res[name].append (tradeId);
+      const auto btxid = stmt.Get<std::string> (0);
+      const auto height = stmt.Get<int64_t> (1);
+      res[btxid] = static_cast<Json::Int> (height);
     }
 
   return res;
 }
 
-DemGame::TradeState
-DemGame::CheckTrade (const xaya::Game& g, const std::string& name,
-                     const std::string& tradeId)
+DemGame::TradeData
+DemGame::CheckTrade (const xaya::Game& g, const std::string& btxid)
 {
   /* Checking the pending and confirmed state is done without locking the
      GSP in-between, so in theory there could be race conditions that change
@@ -173,41 +149,44 @@ DemGame::CheckTrade (const xaya::Game& g, const std::string& name,
 
   const Json::Value pending = g.GetPendingJsonState ()["pending"];
   const Json::Value confirmed = GetCustomStateData (g, "data",
-      [&name, &tradeId] (const xaya::SQLiteDatabase& db)
+      [&btxid] (const xaya::SQLiteDatabase& db) -> Json::Value
       {
         auto stmt = db.PrepareRo (R"(
-          SELECT COUNT(*)
+          SELECT `height`
             FROM `trades`
-            WHERE `seller_name` = ?1 AND `seller_id` = ?2
+            WHERE `btxid` = ?1
         )");
-        stmt.Bind (1, name);
-        stmt.Bind (2, tradeId);
+        stmt.Bind (1, btxid);
 
-        CHECK (stmt.Step ());
-        const auto cnt = stmt.Get<int> (0);
-        CHECK_GE (cnt, 0);
-        CHECK_LE (cnt, 1);
+        if (!stmt.Step ())
+          return Json::Value ();
+
+        const auto height = stmt.Get<int> (0);
         CHECK (!stmt.Step ());
 
-        return cnt > 0;
+        return static_cast<Json::Int> (height);
       })["data"];
 
   CHECK (pending.isObject ());
-  CHECK (confirmed.isBool ());
+  CHECK (confirmed.isNull () || confirmed.isUInt ());
 
-  if (confirmed.asBool ())
-    return TradeState::CONFIRMED;
+  TradeData res;
 
-  if (pending.isMember (name))
+  if (confirmed.asInt ())
     {
-      const auto& arr = pending[name];
-      CHECK (arr.isArray ());
-      for (const auto& entry : arr)
-        if (entry.asString () == tradeId)
-          return TradeState::PENDING;
+      res.state = TradeState::CONFIRMED;
+      res.confirmationHeight = confirmed.asUInt ();
+      return res;
     }
 
-  return TradeState::UNKNOWN;
+  if (pending.isMember (btxid))
+    {
+      res.state = TradeState::PENDING;
+      return res;
+    }
+
+  res.state = TradeState::UNKNOWN;
+  return res;
 }
 
 } // namespace dem

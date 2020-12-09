@@ -16,11 +16,7 @@
 
   {
     "name": "checktrade",
-    "params":
-      {
-        "name": "foo",
-        "tradeid": "bar"
-      },
-    "returns": "state"
+    "params": ["btxid"],
+    "returns": {}
   }
 ]
