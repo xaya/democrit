@@ -115,35 +115,19 @@ template <typename Proto>
   return res;
 }
 
-MATCHER_P (EqualsOrdersForAsset, str, "")
-{
-  const auto expected = ParseTextProto<proto::OrderbookForAsset> (str);
-  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
-    return true;
+#define DEFINE_PROTO_MATCHER(name, type) \
+  MATCHER_P (name, str, "") \
+  { \
+    const auto expected = ParseTextProto<proto::type> (str);\
+    if (google::protobuf::util::MessageDifferencer::Equals (arg, expected)) \
+      return true; \
+    *result_listener << "actual: " << arg.DebugString (); \
+    return false; \
+  }
 
-  *result_listener << "actual: " << arg.DebugString ();
-  return false;
-}
-
-MATCHER_P (EqualsOrdersByAsset, str, "")
-{
-  const auto expected = ParseTextProto<proto::OrderbookByAsset> (str);
-  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
-    return true;
-
-  *result_listener << "actual: " << arg.DebugString ();
-  return false;
-}
-
-MATCHER_P (EqualsOrdersOfAccount, str, "")
-{
-  const auto expected = ParseTextProto<proto::OrdersOfAccount> (str);
-  if (google::protobuf::util::MessageDifferencer::Equals (arg, expected))
-    return true;
-
-  *result_listener << "actual: " << arg.DebugString ();
-  return false;
-}
+DEFINE_PROTO_MATCHER (EqualsOrdersForAsset, OrderbookForAsset)
+DEFINE_PROTO_MATCHER (EqualsOrdersByAsset, OrderbookByAsset)
+DEFINE_PROTO_MATCHER (EqualsOrdersOfAccount, OrdersOfAccount)
 
 /**
  * Very simple AssetSpec to be used in testing.  It defines three valid
