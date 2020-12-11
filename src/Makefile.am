@@ -40,6 +40,7 @@ libdemocrit_la_SOURCES = \
   orderbook.cpp \
   rpcserver.cpp \
   stanzas.cpp \
+  trades.cpp \
   $(PROTOSOURCES)
 democrit_HEADERS = \
   assetspec.hpp \
@@ -56,7 +57,8 @@ noinst_HEADERS = \
   private/orderbook.hpp \
   private/rpcclient.hpp private/rpcclient.tpp \
   private/stanzas.hpp stanzas.tpp \
-  private/state.hpp
+  private/state.hpp \
+  private/trades.hpp
 
 check_PROGRAMS = tests
 TESTS = tests
@@ -81,7 +83,8 @@ tests_SOURCES = \
   myorders_tests.cpp \
   orderbook_tests.cpp \
   rpcclient_tests.cpp \
-  stanzas_tests.cpp
+  stanzas_tests.cpp \
+  trades_tests.cpp
 check_HEADERS = \
   testutils.hpp
 
