@@ -107,6 +107,30 @@ Trade::GetPublicInfo () const
 
 /* ************************************************************************** */
 
+void
+TradeManager::ArchiveFinalisedTrades ()
+{
+  state.AccessState ([this] (proto::State& s)
+    {
+      google::protobuf::RepeatedPtrField<proto::TradeState> stillActive;
+      unsigned archived = 0;
+      for (proto::TradeState& t : *s.mutable_trades ())
+        {
+          const Trade obj(*this, s.account (), t);
+          if (obj.IsFinalised ())
+            {
+              *s.mutable_trade_archive ()->Add () = obj.GetPublicInfo ();
+              ++archived;
+            }
+          else
+            *stillActive.Add () = std::move (t);
+        }
+      s.mutable_trades ()->Swap (&stillActive);
+      LOG_IF (INFO, archived > 0)
+          << "Archived " << archived << " finalised trades";
+    });
+}
+
 std::vector<proto::Trade>
 TradeManager::GetTrades () const
 {
@@ -115,6 +139,8 @@ TradeManager::GetTrades () const
     {
       for (const auto& t : s.trades ())
         res.push_back (Trade (*this, s.account (), t).GetPublicInfo ());
+      for (const auto& t : s.trade_archive ())
+        res.push_back (t);
     });
 
   return res;

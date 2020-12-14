@@ -91,6 +91,21 @@ public:
     return std::unique_ptr<Trade> (new Trade (*this, me, *ref));
   }
 
+  /**
+   * Adds a new Trade to the internal state, based on the given proto data.
+   */
+  void
+  AddTrade (const std::string& data)
+  {
+    auto pb = ParseTextProto<proto::TradeState> (data);
+    AccessState ([&pb] (proto::State& s)
+      {
+        *s.mutable_trades ()->Add () = std::move (pb);
+      });
+  }
+
+  using TradeManager::ArchiveFinalisedTrades;
+
 };
 
 namespace
@@ -345,6 +360,132 @@ TEST_F (TradeManagerTests, TakingOrderSuccess)
       type: BID
       asset: "gold"
       units: 10
+      price_sat: 64
+      role: TAKER
+    )")
+  ));
+}
+
+TEST_F (TradeManagerTests, Archive)
+{
+  tm.AddTrade (R"(
+    state: INITIATED
+    start_time: 1
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 100
+        type: BID
+      }
+    units: 42
+    counterparty: "other"
+  )");
+  tm.AddTrade (R"(
+    state: ABANDONED
+    start_time: 2
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 20
+        type: BID
+      }
+    units: 100
+    counterparty: "other"
+  )");
+  tm.AddTrade (R"(
+    state: PENDING
+    start_time: 3
+    order:
+      {
+        account: "me"
+        asset: "silver"
+        price_sat: 20
+        type: ASK
+      }
+    units: 1
+    counterparty: "other"
+    their_psbt: "partial"
+    our_psbt: "signed"
+  )");
+  tm.AddTrade (R"(
+    state: SUCCESS
+    start_time: 4
+    order:
+      {
+        account: "other"
+        asset: "gold"
+        price_sat: 42
+        type: BID
+      }
+    units: 10
+    counterparty: "other"
+  )");
+  tm.AddTrade (R"(
+    state: FAILED
+    start_time: 5
+    order:
+      {
+        account: "other"
+        asset: "gold"
+        price_sat: 64
+        type: BID
+      }
+    units: 5
+    counterparty: "other"
+  )");
+
+  tm.ArchiveFinalisedTrades ();
+
+  EXPECT_THAT (tm.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 1
+      counterparty: "other"
+      type: BID
+      asset: "gold"
+      units: 42
+      price_sat: 100
+      role: MAKER
+    )"),
+    EqualsTrade (R"(
+      state: PENDING
+      start_time: 3
+      counterparty: "other"
+      type: ASK
+      asset: "silver"
+      units: 1
+      price_sat: 20
+      role: MAKER
+    )"),
+    EqualsTrade (R"(
+      state: ABANDONED
+      start_time: 2
+      counterparty: "other"
+      type: BID
+      asset: "gold"
+      units: 100
+      price_sat: 20
+      role: MAKER
+    )"),
+    EqualsTrade (R"(
+      state: SUCCESS
+      start_time: 4
+      counterparty: "other"
+      type: ASK
+      asset: "gold"
+      units: 10
+      price_sat: 42
+      role: TAKER
+    )"),
+    EqualsTrade (R"(
+      state: FAILED
+      start_time: 5
+      counterparty: "other"
+      type: ASK
+      asset: "gold"
+      units: 5
       price_sat: 64
       role: TAKER
     )")

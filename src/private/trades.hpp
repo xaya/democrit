@@ -154,6 +154,13 @@ private:
   /** The global state we use to read our trades from.  */
   State& state;
 
+  /**
+   * Process all active trades and move those that are finalised to the
+   * trade archive instead.
+   */
+  void ArchiveFinalisedTrades ();
+
+  friend class TestTradeManager;
   friend class Trade;
 
 protected:
