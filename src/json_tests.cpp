@@ -19,6 +19,7 @@
 #include "json.hpp"
 
 #include "proto/orders.pb.h"
+#include "proto/trades.pb.h"
 #include "testutils.hpp"
 
 #include <gtest/gtest.h>
@@ -307,6 +308,49 @@ TEST_F (JsonTests, OrderbookByAssetToJson)
             }
           ]
       }
+  })");
+}
+
+TEST_F (JsonTests, TradeToJson)
+{
+  ExpectProtoToJson<proto::Trade> (R"(
+    state: PENDING
+    start_time: 123
+    counterparty: "domob"
+    type: BID
+    asset: "gold"
+    units: 42
+    price_sat: 10
+    role: MAKER
+  )", R"({
+    "state": "pending",
+    "start_time": 123,
+    "counterparty": "domob",
+    "type": "bid",
+    "asset": "gold",
+    "units": 42,
+    "price_sat": 10,
+    "role": "maker"
+  })");
+
+  ExpectProtoToJson<proto::Trade> (R"(
+    state: SUCCESS
+    start_time: 456
+    counterparty: "domob"
+    type: ASK
+    asset: "silver"
+    units: 1
+    price_sat: 100
+    role: TAKER
+  )", R"({
+    "state": "success",
+    "start_time": 456,
+    "counterparty": "domob",
+    "type": "ask",
+    "asset": "silver",
+    "units": 1,
+    "price_sat": 100,
+    "role": "taker"
   })");
 }
 
