@@ -1,0 +1,7 @@
+[
+  {
+    "name": "echo",
+    "params": [42],
+    "returns": 42
+  }
+]

@@ -11,19 +11,23 @@ PROTOSOURCES = $(PROTOS:.proto=.pb.cc)
 
 EXTRA_DIST = \
   rpc-stubs/daemon.json \
+  rpc-stubs/test.json \
   $(PROTOS)
 
-RPC_STUBS = rpc-stubs/daemonrpcserverstub.h
+RPC_STUBS = \
+  rpc-stubs/daemonrpcserverstub.h \
+  rpc-stubs/testrpcclient.h \
+  rpc-stubs/testrpcserverstub.h
 BUILT_SOURCES = $(PROTOHEADERS) $(RPC_STUBS)
 CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES) $(RPC_STUBS)
 
 libdemocrit_la_CXXFLAGS = \
   $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) \
-  $(JSON_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
+  $(JSON_CFLAGS) $(JSONRPCCPPCLIENT_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
   $(PROTOBUF_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS)
 libdemocrit_la_LIBADD = \
   $(CHARON_LIBS) $(XAYAGAME_LIBS) \
-  $(JSON_LIBS) $(JSONRPCCPPSERVER_LIBS) \
+  $(JSON_LIBS) $(JSONRPCCPPCLIENT_LIBS) $(JSONRPCCPPSERVER_LIBS) \
   $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
@@ -49,6 +53,7 @@ noinst_HEADERS = \
   private/mucclient.hpp \
   private/myorders.hpp \
   private/orderbook.hpp \
+  private/rpcclient.hpp private/rpcclient.tpp \
   private/stanzas.hpp stanzas.tpp \
   private/state.hpp
 
@@ -56,11 +61,13 @@ check_PROGRAMS = tests
 TESTS = tests
 
 tests_CXXFLAGS = \
-  $(JSON_CFLAGS) $(CHARON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS) \
+  $(JSON_CFLAGS) $(JSONRPCCPPCLIENT_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
+  $(CHARON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS) \
   $(PROTOBUF_CFLAGS) $(GTEST_CFLAGS)
 tests_LDADD = \
   $(builddir)/libdemocrit.la \
-  $(JSON_LIBS) $(CHARON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) \
+  $(JSON_LIBS) $(JSONRPCCPPCLIENT_LIBS) $(JSONRPCCPPSERVER_LIBS) \
+  $(CHARON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) \
   $(PROTOBUF_LIBS) $(GTEST_LIBS)
 tests_SOURCES = \
   testutils.cpp \
@@ -72,6 +79,7 @@ tests_SOURCES = \
   mucclient_tests.cpp \
   myorders_tests.cpp \
   orderbook_tests.cpp \
+  rpcclient_tests.cpp \
   stanzas_tests.cpp
 check_HEADERS = \
   testutils.hpp
@@ -81,3 +89,8 @@ proto/%.pb.h proto/%.pb.cc: $(srcdir)/proto/%.proto
 
 rpc-stubs/daemonrpcserverstub.h: $(srcdir)/rpc-stubs/daemon.json
 	jsonrpcstub "$<" --cpp-server=DaemonRpcServerStub --cpp-server-file="$@"
+
+rpc-stubs/testrpcclient.h: $(srcdir)/rpc-stubs/test.json
+	jsonrpcstub "$<" --cpp-client=TestRpcClient --cpp-client-file="$@"
+rpc-stubs/testrpcserverstub.h: $(srcdir)/rpc-stubs/test.json
+	jsonrpcstub "$<" --cpp-server=TestRpcServerStub --cpp-server-file="$@"
