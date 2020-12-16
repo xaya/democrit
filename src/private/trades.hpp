@@ -21,10 +21,12 @@
 
 #include "assetspec.hpp"
 #include "private/myorders.hpp"
+#include "private/rpcclient.hpp"
 #include "private/state.hpp"
 #include "proto/orders.pb.h"
 #include "proto/processing.pb.h"
 #include "proto/trades.pb.h"
+#include "rpc-stubs/xayarpcclient.h"
 
 #include <chrono>
 #include <string>
@@ -128,6 +130,18 @@ private:
    */
   void SetTakingOrder (proto::ProcessingMessage& msg) const;
 
+  /**
+   * Merges in seller data received from the counterparty with our state.
+   */
+  void MergeSellerData (const proto::SellerData& sd);
+
+  /**
+   * Checks if we are the seller and still need to get our addresses for
+   * the seller data.  If that is the case, retrieves them and adds them to
+   * our TradeState proto.
+   */
+  bool CreateSellerData ();
+
   friend class TestTradeManager;
   friend class TradeManager;
 
@@ -189,6 +203,12 @@ private:
   MyOrders& myOrders;
 
   /**
+   * RPC client for Xaya calls (e.g. to get seller addresses, check name
+   * outputs or sign transactions).
+   */
+  RpcClient<XayaRpcClient>& xayaRpc;
+
+  /**
    * Process all active trades and move those that are finalised to the
    * trade archive instead.
    */
@@ -220,8 +240,8 @@ protected:
 
 public:
 
-  explicit TradeManager (State& s, MyOrders& mo)
-    : state(s), myOrders(mo)
+  explicit TradeManager (State& s, MyOrders& mo, RpcClient<XayaRpcClient>& x)
+    : state(s), myOrders(mo), xayaRpc(x)
   {}
 
   virtual ~TradeManager () = default;

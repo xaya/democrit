@@ -1,0 +1,12 @@
+[
+  {
+    "name": "getnewaddress",
+    "params": [],
+    "returns": "foo"
+  },
+  {
+    "name": "name_show",
+    "params": ["p/domob"],
+    "returns": {}
+  }
+]

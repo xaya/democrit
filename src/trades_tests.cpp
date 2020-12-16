@@ -18,6 +18,7 @@
 
 #include "private/trades.hpp"
 
+#include "mockxaya.hpp"
 #include "private/myorders.hpp"
 #include "private/state.hpp"
 #include "testutils.hpp"
@@ -35,6 +36,7 @@ using testing::ElementsAre;
 
 DEFINE_PROTO_MATCHER (EqualsTradeState, TradeState)
 DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
+DEFINE_PROTO_MATCHER (EqualsProcessingMessage, ProcessingMessage)
 
 constexpr auto NO_EXPIRY = std::chrono::seconds (1'000);
 
@@ -44,8 +46,7 @@ constexpr auto NO_EXPIRY = std::chrono::seconds (1'000);
 
 /**
  * TradeManager instance used in tests.  It holds a State instance and
- * some fake data / mock RPC connections.  "me" is the account name
- * used for the current user.
+ * some fake data / mock RPC connections.
  */
 class TestTradeManager : public State, public MyOrders, public TradeManager
 {
@@ -55,6 +56,9 @@ private:
   /** The mock time to return as "current" for created trades.  */
   int64_t mockTime;
 
+  /** The user's account name.  */
+  const std::string account;
+
   int64_t
   GetCurrentTime () const override
   {
@@ -63,11 +67,15 @@ private:
 
 public:
 
-  TestTradeManager ()
-    : State("me"),
+  template <typename XayaRpc>
+    explicit TestTradeManager (const std::string& a,
+                               TestEnvironment<XayaRpc>& env)
+    : State(a),
       MyOrders(static_cast<State&> (*this), NO_EXPIRY),
-      TradeManager(static_cast<State&> (*this), static_cast<MyOrders&> (*this)),
-      mockTime(0)
+      TradeManager(static_cast<State&> (*this),
+                   static_cast<MyOrders&> (*this),
+                   env.GetXayaRpc ()),
+      mockTime(0), account(a)
   {}
 
   void
@@ -78,7 +86,8 @@ public:
 
   /**
    * Constructs a new Trade instance, based on the given data parsed
-   * as text-format TradeState.
+   * as text-format TradeState.  The internal list of trades will just
+   * contain this one trade in the end.
    */
   std::unique_ptr<Trade>
   GetTrade (const std::string& data)
@@ -92,8 +101,7 @@ public:
         *ref = std::move (pb);
       });
 
-    static const std::string me = "me";
-    return std::unique_ptr<Trade> (new Trade (*this, me, *ref));
+    return std::unique_ptr<Trade> (new Trade (*this, account, *ref));
   }
 
   /**
@@ -107,6 +115,86 @@ public:
       {
         *s.mutable_trades ()->Add () = std::move (pb);
       });
+  }
+
+  /**
+   * Looks up a trade based on the (maker, id) value and returns a Trade
+   * instance for it.  Returns null in case there is no matching trade.
+   */
+  std::unique_ptr<const Trade>
+  LookupTrade (const std::string& maker, const uint64_t id)
+  {
+    std::unique_ptr<const Trade> res;
+    ReadState ([&] (const proto::State& s)
+      {
+        for (const auto& t : s.trades ())
+          {
+            if (maker != t.order ().account ())
+              continue;
+            if (id != t.order ().id ())
+              continue;
+
+            CHECK (res == nullptr)
+                << "Found multiple trades matching " << maker << " " << id;
+            res.reset (new Trade (*this, s.account (), t));
+          }
+      });
+
+    return res;
+  }
+
+  /**
+   * Adds a new order to the internal "my orders" instance.  Before calling
+   * Add, the internal next ID (i.e. the ID that the order will get assigned)
+   * is set to the desired value.
+   */
+  void
+  AddOrder (const uint64_t id, const std::string& data)
+  {
+    AccessState ([id] (proto::State& s)
+      {
+        s.set_next_free_id (id);
+      });
+    CHECK (MyOrders::Add (ParseTextProto<proto::Order> (data)));
+  }
+
+  /**
+   * Calls ProcessMessage with the given data as text proto and expects
+   * no reply.
+   */
+  void
+  ProcessWithoutReply (const std::string& data)
+  {
+    const auto msg = ParseTextProto<proto::ProcessingMessage> (data);
+
+    proto::ProcessingMessage reply;
+    ASSERT_FALSE (ProcessMessage (msg, reply));
+  }
+
+  /**
+   * Calls ProcessMessage with the given data as text proto, expects
+   * to get a reply from it, and returns that reply.
+   */
+  proto::ProcessingMessage
+  ProcessWithReply (const std::string& data)
+  {
+    const auto msg = ParseTextProto<proto::ProcessingMessage> (data);
+
+    proto::ProcessingMessage reply;
+    EXPECT_TRUE (ProcessMessage (msg, reply));
+
+    return reply;
+  }
+
+  /**
+   * Returns the internal proto state data for a Trade instance.  This is
+   * just used to expose that private data through this class being a friend
+   * of Trade.
+   */
+  static const proto::TradeState&
+  GetInternalState (const Trade& t)
+  {
+    return t.pb;
   }
 
   using TradeManager::ArchiveFinalisedTrades;
@@ -124,7 +212,12 @@ class TradeStateTests : public testing::Test
 
 protected:
 
+  TestEnvironment<MockXayaRpcServer> env;
   TestTradeManager tm;
+
+  TradeStateTests ()
+    : tm("me", env)
+  {}
 
   /**
    * Returns the public info data (Trade::GetPublicInfo) for the given
@@ -134,6 +227,60 @@ protected:
   GetPublicInfo (const std::string& data)
   {
     return tm.GetTrade (data)->GetPublicInfo ();
+  }
+
+  /**
+   * Applies a ProcessingMessage given in text format to a trade of
+   * text-format state, and returns the trade's resulting internal state.
+   */
+  proto::TradeState
+  HandleMessage (const std::string& stateBefore, const std::string& msg)
+  {
+    auto t = tm.GetTrade (stateBefore);
+    t->HandleMessage (ParseTextProto<proto::ProcessingMessage> (msg));
+    return tm.GetInternalState (*t);
+  }
+
+  /**
+   * Applies a ProcessingMessage to a trade of given state, and expects
+   * that this does not change the state at all.
+   */
+  void
+  ExpectNoStateChange (const std::string& stateBefore, const std::string& msg)
+  {
+    EXPECT_THAT (HandleMessage (stateBefore, msg),
+                 EqualsTradeState (stateBefore));
+  }
+
+  /**
+   * Checks that the trade with state as per the passed-in text proto
+   * has no reply to the counterparty, and also does not modify the state.
+   */
+  void
+  ExpectNoReply (const std::string& state)
+  {
+    auto t = tm.GetTrade (state);
+
+    proto::ProcessingMessage reply;
+    EXPECT_FALSE (t->HasReply (reply));
+
+    EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (state));
+  }
+
+  /**
+   * Checks that the trade with given state has a reply to the counterparty,
+   * that the new state (after calling HasReply) matches the expected one,
+   * and returns the reply message.
+   */
+  proto::ProcessingMessage
+  ExpectReplyAndNewState (const std::string& stateBefore,
+                          const std::string& stateAfter)
+  {
+    auto t = tm.GetTrade (stateBefore);
+    proto::ProcessingMessage reply;
+    EXPECT_TRUE (t->HasReply (reply));
+    EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (stateAfter));
+    return reply;
   }
 
 };
@@ -257,14 +404,139 @@ TEST_F (TradeStateTests, IsFinalised)
 
 /* ************************************************************************** */
 
+using TradeSellerDataTests = TradeStateTests;
+
+TEST_F (TradeSellerDataTests, BuyerSentData)
+{
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: ASK }
+  )", R"(
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )");
+}
+
+TEST_F (TradeSellerDataTests, AlreadyHaveData)
+{
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+    seller_data: { name_address: "old 1" chi_address: "old 2" }
+  )", R"(
+    seller_data: { name_address: "new 1" chi_address: "new 2" }
+  )");
+}
+
+TEST_F (TradeSellerDataTests, InvalidData)
+{
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+  )", R"(
+    seller_data: { chi_address: "addr 2" }
+  )");
+
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+  )", R"(
+    seller_data: { name_address: "addr 1" }
+  )");
+
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+  )", R"(
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: {}
+      }
+  )");
+
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+  )", R"(
+    seller_data:
+      {
+        name_address: "addr"
+        chi_address: "addr"
+      }
+  )");
+}
+
+TEST_F (TradeSellerDataTests, AddsSellerData)
+{
+  EXPECT_THAT (
+      HandleMessage (R"(
+        state: INITIATED
+        order: { account: "me" type: BID }
+      )", R"(
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+      )"),
+      EqualsTradeState (R"(
+        state: INITIATED
+        order: { account: "me" type: BID }
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+      )"));
+}
+
+TEST_F (TradeSellerDataTests, BuyerDoesNotConstructSellerData)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order: { account: "me" type: BID }
+  )");
+}
+
+TEST_F (TradeSellerDataTests, DoesNotConstructSecondSellerData)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order: { account: "me" type: ASK }
+    seller_data: {}
+  )");
+}
+
+TEST_F (TradeSellerDataTests, AddsAndRepliesSellerData)
+{
+  EXPECT_THAT (
+      ExpectReplyAndNewState (R"(
+        state: INITIATED
+        order: { id: 1 account: "me" type: ASK }
+        counterparty: "other"
+      )", R"(
+        state: INITIATED
+        order: { id: 1 account: "me" type: ASK }
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+      )"),
+      EqualsProcessingMessage (R"(
+        counterparty: "other"
+        identifier: "me\n1"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+      )"));
+}
+
+/* ************************************************************************** */
+
 class TradeManagerTests : public testing::Test
 {
 
 protected:
 
+  TestEnvironment<MockXayaRpcServer> env;
   TestTradeManager tm;
 
   TradeManagerTests ()
+    : tm("me", env)
   {
     tm.SetMockTime (123);
   }
@@ -373,6 +645,206 @@ TEST_F (TradeManagerTests, TakingOrderSuccess)
       role: TAKER
     )")
   ));
+}
+
+TEST_F (TradeManagerTests, TakingSellOrder)
+{
+  proto::ProcessingMessage msg;
+  ASSERT_TRUE (tm.TakeOrder (ParseTextProto<proto::Order> (R"(
+    account: "other"
+    id: 42
+    asset: "gold"
+    max_units: 100
+    price_sat: 64
+    type: ASK
+  )"), 100, msg));
+  EXPECT_THAT (msg, EqualsProcessingMessage (R"(
+    counterparty: "other"
+    identifier: "other\n42"
+    taking_order: { id: 42 units: 100 }
+  )"));
+}
+
+TEST_F (TradeManagerTests, TakingBuyOrder)
+{
+  proto::ProcessingMessage msg;
+  ASSERT_TRUE (tm.TakeOrder (ParseTextProto<proto::Order> (R"(
+    account: "other"
+    id: 42
+    asset: "gold"
+    max_units: 100
+    price_sat: 64
+    type: BID
+  )"), 100, msg));
+  EXPECT_THAT (msg, EqualsProcessingMessage (R"(
+    counterparty: "other"
+    identifier: "other\n42"
+    taking_order: { id: 42 units: 100 }
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )"));
+}
+
+TEST_F (TradeManagerTests, ProcessingTakeOrderUnavailable)
+{
+  tm.AddOrder (42, R"(
+    asset: "gold"
+    max_units: 10
+    price_sat: 5
+    type: BID
+  )");
+
+  proto::Order o;
+  ASSERT_TRUE (tm.TryLock (42, o));
+
+  tm.ProcessWithoutReply (R"(
+    counterparty: "other"
+    identifier: "me\n10"
+    taking_order: { id: 10 units: 1 }
+  )");
+
+  tm.ProcessWithoutReply (R"(
+    counterparty: "other"
+    identifier: "me\n42"
+    taking_order: { id: 42 units: 1 }
+  )");
+
+  tm.Unlock (42);
+}
+
+TEST_F (TradeManagerTests, ProcessingTakeOrderWithWrongUnits)
+{
+  tm.AddOrder (42, R"(
+    asset: "gold"
+    max_units: 10
+    price_sat: 5
+    type: BID
+  )");
+
+  tm.ProcessWithoutReply (R"(
+    counterparty: "other"
+    identifier: "me\n42"
+    taking_order: { id: 42 units: 11 }
+  )");
+
+  /* The order should not be locked now!  */
+  proto::Order o;
+  ASSERT_TRUE (tm.TryLock (42, o));
+}
+
+TEST_F (TradeManagerTests, ProcessingTakeSellOrder)
+{
+  tm.AddOrder (42, R"(
+    asset: "gold"
+    max_units: 10
+    price_sat: 5
+    type: ASK
+  )");
+
+  EXPECT_THAT (tm.ProcessWithReply (R"(
+    counterparty: "other"
+    identifier: "me\n42"
+    taking_order: { id: 42 units: 10 }
+  )"), EqualsProcessingMessage (R"(
+    counterparty: "other"
+    identifier: "me\n42"
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )"));
+
+  /* The order should be locked now.  */
+  EXPECT_THAT (tm.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "me"
+    orders:
+      {
+        key: 42
+        value:
+          {
+            asset: "gold"
+            max_units: 10
+            price_sat: 5
+            type: ASK
+            locked: true
+          }
+      }
+  )"));
+
+  auto t = tm.LookupTrade ("me", 42);
+  ASSERT_NE (t, nullptr);
+  EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "me"
+        id: 42
+        asset: "gold"
+        max_units: 10
+        type: ASK
+        price_sat: 5
+      }
+    units: 10
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 12 }
+      }
+  )"));
+}
+
+TEST_F (TradeManagerTests, ProcessingTakeBuyOrder)
+{
+  tm.AddOrder (42, R"(
+    asset: "gold"
+    max_units: 10
+    price_sat: 5
+    type: BID
+  )");
+
+  /* FIXME: In the future (when buyer-builds-unsigned-tx is implemented), this
+     will actually return a reply.  */
+  tm.ProcessWithoutReply (R"(
+    counterparty: "other"
+    identifier: "me\n42"
+    taking_order: { id: 42 units: 10 }
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )");
+
+  /* The order should be locked now.  */
+  EXPECT_THAT (tm.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "me"
+    orders:
+      {
+        key: 42
+        value:
+          {
+            asset: "gold"
+            max_units: 10
+            price_sat: 5
+            type: BID
+            locked: true
+          }
+      }
+  )"));
+
+  auto t = tm.LookupTrade ("me", 42);
+  ASSERT_NE (t, nullptr);
+  EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "me"
+        id: 42
+        asset: "gold"
+        max_units: 10
+        type: BID
+        price_sat: 5
+      }
+    units: 10
+    counterparty: "other"
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )"));
 }
 
 TEST_F (TradeManagerTests, Archive)
@@ -499,6 +971,272 @@ TEST_F (TradeManagerTests, Archive)
       role: TAKER
     )")
   ));
+}
+
+/* ************************************************************************** */
+
+/**
+ * These tests use *two* TradeManager's that actually exchange messages
+ * with each other to simulate the entire trade flow.
+ */
+class TradeFlowTests : public testing::Test
+{
+
+protected:
+
+  TestEnvironment<MockXayaRpcServer> env;
+  TestTradeManager buyer;
+  TestTradeManager seller;
+
+  TradeFlowTests ()
+    : buyer("buyer", env), seller("seller", env)
+  {
+    buyer.SetMockTime (123);
+    seller.SetMockTime (123);
+  }
+
+  /**
+   * Runs a "TakeOrder" call on the given trade manager, and then starts
+   * passing back and forth the reply messages between the two until one
+   * of them no longer has a reply.
+   */
+  void
+  TakeOrder (TradeManager& tm, const Amount units, const std::string& order)
+  {
+    CHECK (&tm == &buyer || &tm == &seller);
+
+    proto::ProcessingMessage msg;
+    if (!tm.TakeOrder (ParseTextProto<proto::Order> (order), units, msg))
+      return;
+
+    while (true)
+      {
+        TradeManager* msgFor;
+        if (msg.counterparty () == "buyer")
+          {
+            msgFor = &buyer;
+            msg.set_counterparty ("seller");
+          }
+        else if (msg.counterparty () == "seller")
+          {
+            msgFor = &seller;
+            msg.set_counterparty ("buyer");
+          }
+        else
+          LOG (FATAL) << "Unexpected counterparty:\n" << msg.DebugString ();
+
+        proto::ProcessingMessage reply;
+        if (!msgFor->ProcessMessage (msg, reply))
+          return;
+
+        msg = reply;
+      }
+  }
+
+};
+
+TEST_F (TradeFlowTests, TakingBuyOrder)
+{
+  buyer.AddOrder (1, R"(
+    asset: "gold"
+    max_units: 5
+    price_sat: 10
+    type: BID
+  )");
+
+  TakeOrder (seller, 3, R"(
+    account: "buyer"
+    id: 1
+    asset: "gold"
+    max_units: 5
+    price_sat: 10
+    type: BID
+  )");
+
+  EXPECT_THAT (buyer.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "buyer"
+    orders:
+      {
+        key: 1
+        value:
+          {
+            asset: "gold"
+            max_units: 5
+            price_sat: 10
+            type: BID
+            locked: true
+          }
+      }
+  )"));
+  EXPECT_THAT (buyer.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "seller"
+      type: BID
+      asset: "gold"
+      units: 3
+      price_sat: 10
+      role: MAKER
+    )")
+  ));
+  EXPECT_THAT (buyer.GetInternalState (*buyer.LookupTrade ("buyer", 1)),
+               EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "buyer"
+        id: 1
+        asset: "gold"
+        max_units: 5
+        type: BID
+        price_sat: 10
+      }
+    counterparty: "seller"
+    units: 3
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )"));
+
+  EXPECT_THAT (seller.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "seller"
+  )"));
+  EXPECT_THAT (seller.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "buyer"
+      type: ASK
+      asset: "gold"
+      units: 3
+      price_sat: 10
+      role: TAKER
+    )")
+  ));
+  EXPECT_THAT (seller.GetInternalState (*seller.LookupTrade ("buyer", 1)),
+               EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "buyer"
+        id: 1
+        asset: "gold"
+        max_units: 5
+        type: BID
+        price_sat: 10
+      }
+    counterparty: "buyer"
+    units: 3
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "seller txid" n: 12 }
+      }
+  )"));
+}
+
+TEST_F (TradeFlowTests, TakingSellOrder)
+{
+  seller.AddOrder (1, R"(
+    asset: "silver"
+    max_units: 1
+    price_sat: 5
+    type: ASK
+  )");
+
+  TakeOrder (buyer, 1, R"(
+    account: "seller"
+    id: 1
+    asset: "silver"
+    max_units: 1
+    price_sat: 5
+    type: ASK
+  )");
+
+  EXPECT_THAT (buyer.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "buyer"
+  )"));
+  EXPECT_THAT (buyer.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "seller"
+      type: BID
+      asset: "silver"
+      units: 1
+      price_sat: 5
+      role: TAKER
+    )")
+  ));
+  EXPECT_THAT (buyer.GetInternalState (*buyer.LookupTrade ("seller", 1)),
+               EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "seller"
+        id: 1
+        asset: "silver"
+        max_units: 1
+        type: ASK
+        price_sat: 5
+      }
+    counterparty: "seller"
+    units: 1
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )"));
+
+  EXPECT_THAT (seller.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "seller"
+    orders:
+      {
+        key: 1
+        value:
+          {
+            asset: "silver"
+            max_units: 1
+            price_sat: 5
+            type: ASK
+            locked: true
+          }
+      }
+  )"));
+  EXPECT_THAT (seller.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "buyer"
+      type: ASK
+      asset: "silver"
+      units: 1
+      price_sat: 5
+      role: MAKER
+    )")
+  ));
+  EXPECT_THAT (seller.GetInternalState (*seller.LookupTrade ("seller", 1)),
+               EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "seller"
+        id: 1
+        asset: "silver"
+        max_units: 1
+        type: ASK
+        price_sat: 5
+      }
+    counterparty: "buyer"
+    units: 1
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "seller txid" n: 12 }
+      }
+  )"));
 }
 
 /* ************************************************************************** */

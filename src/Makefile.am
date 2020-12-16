@@ -14,12 +14,15 @@ PROTOSOURCES = $(PROTOS:.proto=.pb.cc)
 EXTRA_DIST = \
   rpc-stubs/daemon.json \
   rpc-stubs/test.json \
+  rpc-stubs/xaya.json \
   $(PROTOS)
 
 RPC_STUBS = \
   rpc-stubs/daemonrpcserverstub.h \
   rpc-stubs/testrpcclient.h \
-  rpc-stubs/testrpcserverstub.h
+  rpc-stubs/testrpcserverstub.h \
+  rpc-stubs/xayarpcclient.h \
+  rpc-stubs/xayarpcserverstub.h
 BUILT_SOURCES = $(PROTOHEADERS) $(RPC_STUBS)
 CLEANFILES = $(PROTOHEADERS) $(PROTOSOURCES) $(RPC_STUBS)
 
@@ -74,6 +77,7 @@ tests_LDADD = \
   $(CHARON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) \
   $(PROTOBUF_LIBS) $(GTEST_LIBS)
 tests_SOURCES = \
+  mockxaya.cpp \
   testutils.cpp \
   \
   authenticator_tests.cpp \
@@ -87,6 +91,7 @@ tests_SOURCES = \
   stanzas_tests.cpp \
   trades_tests.cpp
 check_HEADERS = \
+  mockxaya.hpp mockxaya.tpp \
   testutils.hpp
 
 proto/%.pb.h proto/%.pb.cc: $(srcdir)/proto/%.proto
@@ -99,3 +104,8 @@ rpc-stubs/testrpcclient.h: $(srcdir)/rpc-stubs/test.json
 	jsonrpcstub "$<" --cpp-client=TestRpcClient --cpp-client-file="$@"
 rpc-stubs/testrpcserverstub.h: $(srcdir)/rpc-stubs/test.json
 	jsonrpcstub "$<" --cpp-server=TestRpcServerStub --cpp-server-file="$@"
+
+rpc-stubs/xayarpcclient.h: $(srcdir)/rpc-stubs/xaya.json
+	jsonrpcstub "$<" --cpp-client=XayaRpcClient --cpp-client-file="$@"
+rpc-stubs/xayarpcserverstub.h: $(srcdir)/rpc-stubs/xaya.json
+	jsonrpcstub "$<" --cpp-server=XayaRpcServerStub --cpp-server-file="$@"

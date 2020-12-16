@@ -129,6 +129,47 @@ Trade::Matches (const proto::ProcessingMessage& msg) const
 }
 
 void
+Trade::MergeSellerData (const proto::SellerData& sd)
+{
+  if (GetOrderType () == proto::Order::ASK)
+    {
+      LOG (WARNING) << "Buyer sent us seller data:\n" << sd.DebugString ();
+      return;
+    }
+
+  if (pb.has_seller_data ())
+    {
+      LOG (WARNING)
+          << "Seller data sent, but we have it already:"
+          << "\nOurs:\n" << pb.seller_data ().DebugString ()
+          << "\nSent:\n" << sd.DebugString ();
+      return;
+    }
+
+  if (!sd.has_name_address () || !sd.has_chi_address ()
+        || sd.has_name_output ())
+    {
+      LOG (WARNING) << "Invalid seller data received:\n" << sd.DebugString ();
+      return;
+    }
+
+  /* The two addresses must not be the same, since otherwise createpsbt
+     would fail (even though in theory it would be fine for the blockchain).  */
+  if (sd.name_address () == sd.chi_address ())
+    {
+      LOG (WARNING)
+          << "Seller's CHI and name address must not be equal:\n"
+          << sd.DebugString ();
+      return;
+    }
+
+  VLOG (1)
+      << "Got seller data for trade " << GetIdentifier ()
+      << ":\n" << sd.DebugString ();
+  *pb.mutable_seller_data () = sd;
+}
+
+void
 Trade::HandleMessage (const proto::ProcessingMessage& msg)
 {
   CHECK (isMutable) << "Trade instance is not mutable";
@@ -138,7 +179,33 @@ Trade::HandleMessage (const proto::ProcessingMessage& msg)
   if (pb.state () != proto::Trade::INITIATED)
     return;
 
-  /* TODO: Merge in seller data if we got it.  */
+  if (msg.has_seller_data ())
+    MergeSellerData (msg.seller_data ());
+}
+
+bool
+Trade::CreateSellerData ()
+{
+  if (GetOrderType () != proto::Order::ASK)
+    return false;
+  if (pb.has_seller_data ())
+    return false;
+
+  proto::SellerData sd;
+  sd.set_name_address (tm.xayaRpc->getnewaddress ());
+  sd.set_chi_address (tm.xayaRpc->getnewaddress ());
+
+  const auto name = tm.xayaRpc->name_show ("p/" + account);
+  CHECK (name.isObject ()) << "Invalid name_show result: " << name;
+  const auto outTxid = name["txid"];
+  const auto outVout = name["vout"];
+  CHECK (outTxid.isString () && outVout.isUInt ())
+      << "Invalid name_show result: " << name;
+  sd.mutable_name_output ()->set_hash (outTxid.asString ());
+  sd.mutable_name_output ()->set_n (outVout.asUInt ());
+
+  *pb.mutable_seller_data () = std::move (sd);
+  return true;
 }
 
 bool
@@ -151,8 +218,19 @@ Trade::HasReply (proto::ProcessingMessage& reply)
   if (pb.state () != proto::Trade::INITIATED)
     return false;
 
-  /* TODO: If we are the seller and have not yet created seller data,
-     do this now.  */
+  InitProcessingMessage (reply);
+
+  if (CreateSellerData ())
+    {
+      CHECK (pb.has_seller_data ());
+
+      auto* sd = reply.mutable_seller_data ();
+      *sd = pb.seller_data ();
+      sd->clear_name_output ();
+
+      return true;
+    }
+
   return false;
 }
 
@@ -329,7 +407,7 @@ TradeManager::ProcessMessage (const proto::ProcessingMessage& msg,
       if (!myOrders.TryLock (msg.taking_order ().id (), o))
         {
           LOG (WARNING)
-              << "Counterparty tried to take non-existing own order:\n"
+              << "Counterparty tried to take non-available own order:\n"
               << msg.DebugString ();
           return false;
         }
