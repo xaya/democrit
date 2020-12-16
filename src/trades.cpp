@@ -72,6 +72,22 @@ Trade::GetStartTime () const
   return Clock::time_point (std::chrono::seconds (pb.start_time ()));
 }
 
+void
+Trade::InitProcessingMessage (proto::ProcessingMessage& msg) const
+{
+  msg.Clear ();
+  msg.set_counterparty (pb.counterparty ());
+  msg.set_identifier (GetIdentifier ());
+}
+
+void
+Trade::SetTakingOrder (proto::ProcessingMessage& msg) const
+{
+  auto& to = *msg.mutable_taking_order ();
+  to.set_id (pb.order ().id ());
+  to.set_units (pb.units ());
+}
+
 bool
 Trade::IsFinalised () const
 {
@@ -103,6 +119,41 @@ Trade::GetPublicInfo () const
   res.set_price_sat (pb.order ().price_sat ());
   res.set_role (GetRole ());
   return res;
+}
+
+bool
+Trade::Matches (const proto::ProcessingMessage& msg) const
+{
+  return msg.counterparty () == pb.counterparty ()
+            && msg.identifier () == GetIdentifier ();
+}
+
+void
+Trade::HandleMessage (const proto::ProcessingMessage& msg)
+{
+  CHECK (isMutable) << "Trade instance is not mutable";
+
+  /* In any state except INITIATED, there is nothing more to do except
+     potentially wait (if the state is PENDING).  */
+  if (pb.state () != proto::Trade::INITIATED)
+    return;
+
+  /* TODO: Merge in seller data if we got it.  */
+}
+
+bool
+Trade::HasReply (proto::ProcessingMessage& reply)
+{
+  CHECK (isMutable) << "Trade instance is not mutable";
+
+  /* In any state except INITIATED, there is nothing more to do except
+     potentially wait (if the state is PENDING).  */
+  if (pb.state () != proto::Trade::INITIATED)
+    return false;
+
+  /* TODO: If we are the seller and have not yet created seller data,
+     do this now.  */
+  return false;
 }
 
 /* ************************************************************************** */
@@ -186,7 +237,8 @@ CheckOrder (const proto::Order& o, const Amount units)
 } // anonymous namespace
 
 bool
-TradeManager::TakeOrder (const proto::Order& o, const Amount units)
+TradeManager::TakeOrder (const proto::Order& o, const Amount units,
+                         proto::ProcessingMessage& msg)
 {
   if (!CheckOrder (o, units))
     return false;
@@ -199,7 +251,7 @@ TradeManager::TakeOrder (const proto::Order& o, const Amount units)
   data.set_state (proto::Trade::INITIATED);
 
   bool ok;
-  state.AccessState ([&data, &ok] (proto::State& s)
+  state.AccessState ([&] (proto::State& s)
     {
       if (data.counterparty () == s.account ())
         {
@@ -209,8 +261,21 @@ TradeManager::TakeOrder (const proto::Order& o, const Amount units)
         }
       else
         {
-          *s.mutable_trades ()->Add () = std::move (data);
+          auto* ref = s.mutable_trades ()->Add ();
+          *ref = std::move (data);
           ok = true;
+
+          Trade t(*this, s.account (), *ref);
+
+          if (t.HasReply (msg))
+            {
+              /* This means we were the seller and it filled in the seller
+                 data as well.  We still add the "taking_order" field below.  */
+            }
+          else
+            t.InitProcessingMessage (msg);
+
+          t.SetTakingOrder (msg);
         }
     });
 
@@ -246,6 +311,58 @@ TradeManager::OrderTaken (const proto::Order& o, const Amount units,
         {
           *s.mutable_trades ()->Add () = std::move (data);
           ok = true;
+        }
+    });
+
+  return ok;
+}
+
+bool
+TradeManager::ProcessMessage (const proto::ProcessingMessage& msg,
+                              proto::ProcessingMessage& reply)
+{
+  CHECK (msg.has_counterparty ());
+
+  if (msg.has_taking_order ())
+    {
+      proto::Order o;
+      if (!myOrders.TryLock (msg.taking_order ().id (), o))
+        {
+          LOG (WARNING)
+              << "Counterparty tried to take non-existing own order:\n"
+              << msg.DebugString ();
+          return false;
+        }
+
+      if (!OrderTaken (o, msg.taking_order ().units (), msg.counterparty ()))
+        {
+          LOG (WARNING)
+              << "Counterparty cannot take our order:\n"
+              << msg.DebugString ();
+          myOrders.Unlock (msg.taking_order ().id ());
+          return false;
+        }
+
+      /* The order has been created now.  In case we have e.g. seller data
+         to attach already or a reply to send, this will be handled by normal
+         processing below.  */
+    }
+
+  bool ok = false;
+  state.AccessState ([&] (proto::State& s)
+    {
+      for (auto& tPb : *s.mutable_trades ())
+        {
+          Trade t(*this, s.account (), tPb);
+          if (!t.Matches (msg))
+            continue;
+          CHECK (!ok);
+
+          t.HandleMessage (msg);
+          if (t.HasReply (reply))
+            ok = true;
+
+          break;
         }
     });
 

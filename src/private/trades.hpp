@@ -20,8 +20,10 @@
 #define DEMOCRIT_TRADES_HPP
 
 #include "assetspec.hpp"
+#include "private/myorders.hpp"
 #include "private/state.hpp"
 #include "proto/orders.pb.h"
+#include "proto/processing.pb.h"
 #include "proto/trades.pb.h"
 
 #include <chrono>
@@ -114,6 +116,18 @@ private:
    */
   Clock::time_point GetStartTime () const;
 
+  /**
+   * Fills in the "basic" data for a ProcessingMessage for this trade,
+   * namely the counterparty and identifier.
+   */
+  void InitProcessingMessage (proto::ProcessingMessage& msg) const;
+
+  /**
+   * Sets the "taking_order" field in a processing message for this trade.
+   * This is used by the taker after creating the trade locally.
+   */
+  void SetTakingOrder (proto::ProcessingMessage& msg) const;
+
   friend class TestTradeManager;
   friend class TradeManager;
 
@@ -137,6 +151,23 @@ public:
    */
   proto::Trade GetPublicInfo () const;
 
+  /**
+   * Returns true if the given ProcessingMessage is meant for this trade.
+   */
+  bool Matches (const proto::ProcessingMessage& msg) const;
+
+  /**
+   * Updates the state of this Trade based on a given incoming message (which
+   * is assumed to match this trade already).
+   */
+  void HandleMessage (const proto::ProcessingMessage& msg);
+
+  /**
+   * Checks if it is "our turn" based on the current state; and if so,
+   * returns true and fills in the reply to send to the counterparty.
+   */
+  bool HasReply (proto::ProcessingMessage& reply);
+
 };
 
 /**
@@ -154,11 +185,26 @@ private:
   /** The global state we use to read our trades from.  */
   State& state;
 
+  /** MyOrders instance used to look up, lock and unlock taken orders.  */
+  MyOrders& myOrders;
+
   /**
    * Process all active trades and move those that are finalised to the
    * trade archive instead.
    */
   void ArchiveFinalisedTrades ();
+
+  /**
+   * Adds a new trade, based on one of our own orders being taken by
+   * some counterparty.
+   *
+   * During normal operation (outside of unit tests), this is called
+   * only internally from inside ProcessMessage.  Any further processing
+   * (e.g. setting the seller data right away if the taker is the seller)
+   * as well as returning our reply is handled inside ProcessMessage as well.
+   */
+  bool OrderTaken (const proto::Order& o, const Amount units,
+                   const std::string& taker);
 
   friend class TestTradeManager;
   friend class Trade;
@@ -174,8 +220,8 @@ protected:
 
 public:
 
-  explicit TradeManager (State& s)
-    : state(s)
+  explicit TradeManager (State& s, MyOrders& mo)
+    : state(s), myOrders(mo)
   {}
 
   virtual ~TradeManager () = default;
@@ -191,16 +237,22 @@ public:
 
   /**
    * Adds a new trade, based on taking the given order (i.e. we are the
-   * taker, and the order is from the counterparty).  Returns true on success.
+   * taker, and the order is from the counterparty).  Returns true on success,
+   * and sets the message to be sent to the counterparty.
    */
-  bool TakeOrder (const proto::Order& o, const Amount units);
+  bool TakeOrder (const proto::Order& o, const Amount units,
+                  proto::ProcessingMessage& msg);
 
   /**
-   * Adds a new trade, based on one of our own orders being taken by
-   * some counterparty.
+   * Process a given message we have received via XMPP direct messaging.
+   * The sender name has already been translated to Xaya (decoded from the
+   * XMPP encoding) and filled into the message's counterparty field.
+   *
+   * This method returns true if we have a reply, in which case it is filled
+   * in accordingly.
    */
-  bool OrderTaken (const proto::Order& o, const Amount units,
-                   const std::string& taker);
+  bool ProcessMessage (const proto::ProcessingMessage& msg,
+                       proto::ProcessingMessage& reply);
 
 };
 

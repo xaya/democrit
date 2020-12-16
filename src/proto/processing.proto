@@ -1,0 +1,80 @@
+/*
+    Democrit - atomic trades for XAYA games
+    Copyright (C) 2020  Autonomous Worlds Ltd
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+syntax = "proto2";
+
+import "trades.proto";
+
+package democrit.proto;
+
+/**
+ * Message telling another party that we want to take one of their orders.
+ */
+message TakingOrder
+{
+
+  /**
+   * The ID of the maker's order being taken.  This is in theory redundant
+   * with the "identifier" string being present in ProcessingMessage itself,
+   * but is included here anyway so the identifier string can be seen as
+   * something more abstract.
+   */
+  optional uint64 id = 1;
+
+  /** The exact number of units we want to take.  */
+  optional uint64 units = 2;
+
+}
+
+/**
+ * A message sent via XMPP direct messages between the two parties finalising
+ * a trade between them.
+ */
+message ProcessingMessage
+{
+
+  /**
+   * The counterparty this message is for (as Xaya name).  This is set in the
+   * proto internally, but cleared when the message is actually attached
+   * as XMPP stanza (as the recipient is explicit in the XMPP message anyway).
+   */
+  optional string counterparty = 1;
+
+  /**
+   * The trade's internal identifier, as per Trade::GetIdentifier.
+   * This is a string consisting of the maker and order ID, which uniquely
+   * identifies this trade among all active trades of either the taker or
+   * maker, as long as they themselves behave correctly.
+   */
+  optional string identifier = 2;
+
+  /* The fields following now define the actual payload corresponding to
+     the processing steps done on the trade.  They are processed in order
+     and a message may contain more than one of them (especially when taking
+     a buy order), although typically it will hold just one.  */
+
+  /**
+   * If this is the initial message starting a trade, then this tells the
+   * counterparty that we want to take an order of theirs.
+   */
+  optional TakingOrder taking_order = 101;
+
+  /** The seller telling the buyer their addresses.  */
+  optional SellerData seller_data = 102;
+
+}

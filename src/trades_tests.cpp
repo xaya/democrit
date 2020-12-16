@@ -18,6 +18,7 @@
 
 #include "private/trades.hpp"
 
+#include "private/myorders.hpp"
 #include "private/state.hpp"
 #include "testutils.hpp"
 
@@ -35,6 +36,8 @@ using testing::ElementsAre;
 DEFINE_PROTO_MATCHER (EqualsTradeState, TradeState)
 DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
 
+constexpr auto NO_EXPIRY = std::chrono::seconds (1'000);
+
 } // anonymous namespace
 
 /* ************************************************************************** */
@@ -44,7 +47,7 @@ DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
  * some fake data / mock RPC connections.  "me" is the account name
  * used for the current user.
  */
-class TestTradeManager : public State, public TradeManager
+class TestTradeManager : public State, public MyOrders, public TradeManager
 {
 
 private:
@@ -61,7 +64,9 @@ private:
 public:
 
   TestTradeManager ()
-    : State("me"), TradeManager(static_cast<State&> (*this)),
+    : State("me"),
+      MyOrders(static_cast<State&> (*this), NO_EXPIRY),
+      TradeManager(static_cast<State&> (*this), static_cast<MyOrders&> (*this)),
       mockTime(0)
   {}
 
@@ -105,6 +110,7 @@ public:
   }
 
   using TradeManager::ArchiveFinalisedTrades;
+  using TradeManager::OrderTaken;
 
 };
 
@@ -277,28 +283,29 @@ TEST_F (TradeManagerTests, OrderVerification)
     type: BID
   )");
 
-  EXPECT_FALSE (tm.TakeOrder (o, 9));
-  EXPECT_FALSE (tm.TakeOrder (o, 101));
+  proto::ProcessingMessage msg;
+  EXPECT_FALSE (tm.TakeOrder (o, 9, msg));
+  EXPECT_FALSE (tm.TakeOrder (o, 101, msg));
 
   auto modified = o;
   modified.clear_account ();
-  EXPECT_FALSE (tm.TakeOrder (modified, 10));
+  EXPECT_FALSE (tm.TakeOrder (modified, 10, msg));
 
   modified = o;
   modified.clear_id ();
-  EXPECT_FALSE (tm.TakeOrder (modified, 10));
+  EXPECT_FALSE (tm.TakeOrder (modified, 10, msg));
 
   modified = o;
   modified.clear_asset ();
-  EXPECT_FALSE (tm.TakeOrder (modified, 10));
+  EXPECT_FALSE (tm.TakeOrder (modified, 10, msg));
 
   modified = o;
   modified.clear_price_sat ();
-  EXPECT_FALSE (tm.TakeOrder (modified, 10));
+  EXPECT_FALSE (tm.TakeOrder (modified, 10, msg));
 
   modified = o;
   modified.clear_type ();
-  EXPECT_FALSE (tm.TakeOrder (modified, 10));
+  EXPECT_FALSE (tm.TakeOrder (modified, 10, msg));
 
   EXPECT_THAT (tm.GetTrades (), ElementsAre ());
 }
@@ -314,7 +321,8 @@ TEST_F (TradeManagerTests, TakingOwnOrder)
     type: BID
   )");
 
-  EXPECT_FALSE (tm.TakeOrder (o, 10));
+  proto::ProcessingMessage msg;
+  EXPECT_FALSE (tm.TakeOrder (o, 10, msg));
   EXPECT_FALSE (tm.OrderTaken (o, 10, "me"));
 
   EXPECT_THAT (tm.GetTrades (), ElementsAre ());
@@ -339,8 +347,9 @@ TEST_F (TradeManagerTests, TakingOrderSuccess)
     type: ASK
   )");
 
+  proto::ProcessingMessage msg;
   ASSERT_TRUE (tm.OrderTaken (own, 100, "other"));
-  ASSERT_TRUE (tm.TakeOrder (other, 10));
+  ASSERT_TRUE (tm.TakeOrder (other, 10, msg));
 
   EXPECT_THAT (tm.GetTrades (), ElementsAre (
     EqualsTrade (R"(
