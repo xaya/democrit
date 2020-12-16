@@ -81,7 +81,8 @@ protected:
    * to broadcast them via XMPP, but can be used directly in tests as
    * well.
    */
-  virtual void UpdateOrders (const proto::OrdersOfAccount& ownOrders) = 0;
+  virtual void UpdateOrders (const proto::OrdersOfAccount& ownOrders)
+  {}
 
 public:
 
