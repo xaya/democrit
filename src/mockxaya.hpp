@@ -23,13 +23,17 @@
 #include "rpc-stubs/xayarpcclient.h"
 #include "rpc-stubs/xayarpcserverstub.h"
 
+#include <xayautil/uint256.hpp>
+
 #include <json/json.h>
 #include <jsonrpccpp/server.h>
 #include <jsonrpccpp/server/connectors/httpserver.h>
 
 #include <gmock/gmock.h>
 
+#include <set>
 #include <string>
+#include <utility>
 
 namespace democrit
 {
@@ -55,11 +59,46 @@ private:
   /** How many addresses have been created already.  */
   unsigned addrCount = 0;
 
+  /**
+   * UTXO entries that have been added explicitly with AddUtxo.  They are
+   * returned by the gettxout method.
+   */
+  std::set<std::pair<std::string, int>> utxos;
+
+  /** The current best block, e.g. returned as part of gettxout.  */
+  xaya::uint256 bestBlock;
+
 public:
 
   explicit MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
     : XayaRpcServerStub(conn)
-  {}
+  {
+    bestBlock.SetNull ();
+  }
+
+  /**
+   * Sets the best block to be returned by methods like gettxout.
+   */
+  void
+  SetBestBlock (const xaya::uint256& b)
+  {
+    bestBlock = b;
+  }
+
+  /**
+   * Adds an UTXO entry as "known", which will be returned by gettxout.
+   */
+  void
+  AddUtxo (const std::string& txid, const int vout)
+  {
+    utxos.emplace (txid, vout);
+  }
+
+  /**
+   * Returns the block hash that the mock server "has" at some height
+   * (e.g. with getblockheader and its prev hashes).
+   */
+  static xaya::uint256 GetBlockHash (unsigned height);
 
   /**
    * The addresses returned are of the form "addr N", which N counting
@@ -73,6 +112,22 @@ public:
    * "nm txid:12" with the name filled into the txhash.
    */
   Json::Value name_show (const std::string& name) override;
+
+  /**
+   * If the queried UTXO has been added with AddUtxo, then this method
+   * returns it together with the currently set best block hash.  Otherwise
+   * it returns null, like Xaya Core's gettxout.
+   */
+  Json::Value gettxout (const std::string& txid, int vout) override;
+
+  /**
+   * The server has a static list of block hashes corresponding to fixed heights
+   * (as per GetBlockHash).  This method checks if the given hash is one
+   * of the first couple of them; if it is, the method returns a base result
+   * with just the "previousblockhash" set.  If it is not in there, then the
+   * method throws.
+   */
+  Json::Value getblockheader (const std::string& hashStr) override;
 
 };
 
@@ -108,6 +163,15 @@ public:
 
   TestEnvironment ();
   ~TestEnvironment ();
+
+  /**
+   * Exposes the mock Xaya RPC server, e.g. for controlling it from a test.
+   */
+  XayaServer&
+  GetXayaServer ()
+  {
+    return xayaRpcServer;
+  }
 
   /**
    * Exposes the Xaya RPC client for tests.

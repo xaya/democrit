@@ -18,6 +18,8 @@
 
 #include "mockxaya.hpp"
 
+#include <xayautil/hash.hpp>
+
 #include <jsonrpccpp/common/exception.h>
 
 #include <sstream>
@@ -32,6 +34,14 @@ GetPortForMockServer ()
   ++cnt;
 
   return 2'000 + (cnt % 1'000);
+}
+
+xaya::uint256
+MockXayaRpcServer::GetBlockHash (const unsigned height)
+{
+  std::ostringstream msg;
+  msg << "block " << height;
+  return xaya::SHA256::Hash (msg.str ());
 }
 
 std::string
@@ -59,6 +69,42 @@ MockXayaRpcServer::name_show (const std::string& name)
   res["vout"] = 12;
 
   return res;
+}
+
+Json::Value
+MockXayaRpcServer::gettxout (const std::string& txid, const int vout)
+{
+  if (utxos.count (std::make_pair (txid, vout)) == 0)
+    return Json::Value ();
+
+  Json::Value res(Json::objectValue);
+  res["bestblock"] = bestBlock.ToHex ();
+
+  return res;
+}
+
+Json::Value
+MockXayaRpcServer::getblockheader (const std::string& hashStr)
+{
+  xaya::uint256 hash;
+  if (!hash.FromHex (hashStr))
+    throw jsonrpc::JsonRpcException (-8, "block hash is not uint256");
+
+  for (unsigned h = 0; h < 1'000; ++h)
+    if (hash == GetBlockHash (h))
+      {
+        Json::Value res(Json::objectValue);
+        res["hash"] = hash.ToHex ();
+        res["height"] = static_cast<Json::Int> (h);
+        res["nextblockhash"] = GetBlockHash (h + 1).ToHex ();
+
+        if (h > 0)
+          res["previousblockhash"] = GetBlockHash (h - 1).ToHex ();
+
+        return res;
+      }
+
+  throw jsonrpc::JsonRpcException (-5, "unknown block hash");
 }
 
 } // namespace democrit

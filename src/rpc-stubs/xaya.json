@@ -4,9 +4,20 @@
     "params": [],
     "returns": "foo"
   },
+
   {
     "name": "name_show",
     "params": ["p/domob"],
+    "returns": {}
+  },
+  {
+    "name": "gettxout",
+    "params": ["txid", 42],
+    "returns": {}
+  },
+  {
+    "name": "getblockheader",
+    "params": ["hash"],
     "returns": {}
   }
 ]

@@ -36,6 +36,7 @@ libdemocrit_la_LIBADD = \
   $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS)
 libdemocrit_la_SOURCES = \
   authenticator.cpp \
+  checker.cpp \
   daemon.cpp \
   intervaljob.cpp \
   json.cpp \
@@ -55,6 +56,7 @@ proto_HEADERS = $(PROTOHEADERS)
 rpcstub_HEADERS = $(RPC_STUBS)
 noinst_HEADERS = \
   private/authenticator.hpp \
+  private/checker.hpp \
   private/intervaljob.hpp \
   private/mucclient.hpp \
   private/myorders.hpp \
@@ -68,19 +70,20 @@ check_PROGRAMS = tests
 TESTS = tests
 
 tests_CXXFLAGS = \
+  $(CHARON_CFLAGS) $(XAYAGAME_CFLAGS) \
   $(JSON_CFLAGS) $(JSONRPCCPPCLIENT_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) \
-  $(CHARON_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS) \
-  $(PROTOBUF_CFLAGS) $(GTEST_CFLAGS)
+  $(PROTOBUF_CFLAGS) $(GFLAGS_CFLAGS) $(GLOG_CFLAGS) $(GTEST_CFLAGS)
 tests_LDADD = \
   $(builddir)/libdemocrit.la \
+  $(CHARON_LIBS) $(XAYAGAME_LIBS) \
   $(JSON_LIBS) $(JSONRPCCPPCLIENT_LIBS) $(JSONRPCCPPSERVER_LIBS) \
-  $(CHARON_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) \
-  $(PROTOBUF_LIBS) $(GTEST_LIBS)
+  $(PROTOBUF_LIBS) $(GFLAGS_LIBS) $(GLOG_LIBS) $(GTEST_LIBS)
 tests_SOURCES = \
   mockxaya.cpp \
   testutils.cpp \
   \
   authenticator_tests.cpp \
+  checker_tests.cpp \
   daemon_tests.cpp \
   intervaljob_tests.cpp \
   json_tests.cpp \
