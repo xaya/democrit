@@ -331,4 +331,76 @@ TradeChecker::CheckForSellerOutputs (const std::string& psbt,
   return true;
 }
 
+bool
+TradeChecker::CheckForSellerSignature (const std::string& beforeStr,
+                                       const std::string& afterStr,
+                                       const proto::SellerData& sd) const
+{
+  CHECK (sd.has_name_output ());
+  const auto& nmOut = sd.name_output ();
+  CHECK (nmOut.has_hash () && nmOut.has_n ());
+
+  const auto before = xaya->decodepsbt (beforeStr);
+  const auto after = xaya->decodepsbt (afterStr);
+
+  /* The "tx" field inside the PSBT is always unsigned, so should never
+     change at all by signing (no matter what).  */
+  CHECK_EQ (before["tx"], after["tx"]);
+
+  /* The PSBT "inputs" will change, but only the one matching our
+     name input should.  Otherwise we might have "accidentally" signed
+     another input, e.g. that the buyer put there on purpose to cheat!  */
+
+  const auto& tx = before["tx"];
+  CHECK (tx.isObject ());
+  const auto& vin = tx["vin"];
+  CHECK (vin.isArray ());
+
+  int inputIndex = -1;
+  for (unsigned i = 0; i < vin.size (); ++i)
+    {
+      const auto& in = vin[i];
+      CHECK (in.isObject ());
+      const auto& hashVal = in["txid"];
+      CHECK (hashVal.isString ());
+      const auto& nVal = in["vout"];
+      CHECK (nVal.isUInt ());
+      if (hashVal.asString () == nmOut.hash () && nVal.asUInt () == nmOut.n ())
+        {
+          inputIndex = i;
+          break;
+        }
+    }
+
+  if (inputIndex == -1)
+    {
+      LOG (WARNING) << "Did not find name input in transaction:\n" << before;
+      return false;
+    }
+  CHECK_GE (inputIndex, 0);
+
+  const auto& inputsBefore = before["inputs"];
+  CHECK (inputsBefore.isArray ());
+  const auto& inputsAfter = after["inputs"];
+  CHECK (inputsAfter.isArray ());
+  CHECK_EQ (inputsBefore.size (), inputsAfter.size ());
+
+  for (unsigned i = 0; i < inputsBefore.size (); ++i)
+    {
+      if (i == static_cast<unsigned> (inputIndex))
+        continue;
+
+      if (inputsBefore[i] != inputsAfter[i])
+        {
+          LOG (WARNING)
+              << "Input " << i << " was modified, while our name input is "
+              << inputIndex << ":\n"
+              << before << " vs\n" << after;
+          return false;
+        }
+    }
+
+  return true;
+}
+
 } // namespace democrit

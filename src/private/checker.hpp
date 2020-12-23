@@ -111,6 +111,14 @@ public:
   bool CheckForSellerOutputs (const std::string& psbt,
                               const proto::SellerData& sd) const;
 
+  /**
+   * Compares the "unsigned" and "signed" PSBT (from the seller's point of view)
+   * and verifies that only the seller's name input has actually been signed.
+   */
+  bool CheckForSellerSignature (const std::string& beforeStr,
+                                const std::string& afterStr,
+                                const proto::SellerData& sd) const;
+
 };
 
 } // namespace democrit

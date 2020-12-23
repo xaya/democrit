@@ -500,5 +500,106 @@ TEST_F (TradeCheckerForSellerOutputsTests, NameOutputWrongOperation)
 
 /* ************************************************************************** */
 
+class TradeCheckerForSellerSignatureTests : public TradeCheckerTests
+{
+
+protected:
+
+  /**
+   * Calls CheckForSellerSignature with the given "tx" field and the
+   * given before / after "inputs" fields in the decoded PSBT.  The seller
+   * data's name output is always hardcoded to "seller txid" and 12.
+   */
+  bool
+  Check (const std::string& tx, const std::string& inputsBefore,
+         const std::string& inputsAfter)
+  {
+    Json::Value before(Json::objectValue);
+    before["tx"] = ParseJson (tx);
+    before["inputs"] = ParseJson (inputsBefore);
+    env.GetXayaServer ().SetPsbt ("before", before);
+
+    Json::Value after(Json::objectValue);
+    after["tx"] = ParseJson (tx);
+    after["inputs"] = ParseJson (inputsAfter);
+    env.GetXayaServer ().SetPsbt ("after", after);
+
+    const auto sd = ParseTextProto<proto::SellerData> (R"(
+      name_output:
+        {
+          hash: "seller txid"
+          n: 12
+        }
+    )");
+    return checker.CheckForSellerSignature ("before", "after", sd);
+  }
+
+};
+
+TEST_F (TradeCheckerForSellerSignatureTests, InputNotFound)
+{
+  EXPECT_FALSE (Check (R"({
+    "vin":
+      [
+        {"txid": "foo", "vout": 1},
+        {"txid": "bar", "vout": 10},
+        {"txid": "seller txid", "vout": 0},
+        {"txid": "baz", "vout": 12}
+      ]
+  })", R"([
+    {}, {}, {}, {}
+  ])", R"([
+    {}, {}, {}, {}
+  ])"));
+}
+
+TEST_F (TradeCheckerForSellerSignatureTests, OtherInputSigned)
+{
+  EXPECT_FALSE (Check (R"({
+    "vin":
+      [
+        {"txid": "foo", "vout": 1},
+        {"txid": "seller txid", "vout": 12}
+      ]
+  })", R"([
+    {}, {}
+  ])", R"([
+    {"final_scriptwitness": ["foo"]},
+    {"final_scriptwitness": ["bar"]}
+  ])"));
+}
+
+TEST_F (TradeCheckerForSellerSignatureTests, OnlyOurInputSigned)
+{
+  EXPECT_TRUE (Check (R"({
+    "vin":
+      [
+        {"txid": "foo", "vout": 1},
+        {"txid": "seller txid", "vout": 12}
+      ]
+  })", R"([
+    {}, {}
+  ])", R"([
+    {},
+    {"final_scriptwitness": ["bar"]}
+  ])"));
+
+  EXPECT_TRUE (Check (R"({
+    "vin":
+      [
+        {"txid": "seller txid", "vout": 12},
+        {"txid": "foo", "vout": 1}
+      ]
+  })", R"([
+    {},
+    {"final_scriptwitness": ["foo"]}
+  ])", R"([
+    {"final_scriptwitness": ["bar"]},
+    {"final_scriptwitness": ["foo"]}
+  ])"));
+}
+
+/* ************************************************************************** */
+
 } // anonymous namespace
 } // namespace democrit
