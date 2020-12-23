@@ -104,6 +104,11 @@ gloox::JID GetRoom (const std::string& nm);
 void SleepSome ();
 
 /**
+ * Parses a string to JSON.
+ */
+Json::Value ParseJson (const std::string& str);
+
+/**
  * Parses a protocol buffer from text format.
  */
 template <typename Proto>

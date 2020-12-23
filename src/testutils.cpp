@@ -19,6 +19,7 @@
 #include "testutils.hpp"
 
 #include <chrono>
+#include <sstream>
 #include <thread>
 
 namespace democrit
@@ -82,6 +83,15 @@ void
 SleepSome ()
 {
   std::this_thread::sleep_for (std::chrono::milliseconds (10));
+}
+
+Json::Value
+ParseJson (const std::string& str)
+{
+  std::istringstream in(str);
+  Json::Value res;
+  in >> res;
+  return res;
 }
 
 constexpr const char* TestAssets::GAME_ID;

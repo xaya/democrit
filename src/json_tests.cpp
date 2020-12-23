@@ -35,18 +35,6 @@ namespace
 
 using google::protobuf::util::MessageDifferencer;
 
-/**
- * Parses a string to JSON.
- */
-Json::Value
-ParseJson (const std::string& str)
-{
-  std::istringstream in(str);
-  Json::Value res;
-  in >> res;
-  return res;
-}
-
 class JsonTests : public testing::Test
 {
 

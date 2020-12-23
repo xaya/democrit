@@ -65,6 +65,13 @@ private:
    */
   std::set<std::pair<std::string, int>> utxos;
 
+  /**
+   * Decoded JSON values to be returned for PSBTs from decodepsbt.  The keys
+   * here (the PSBT strings) are just arbitrary, and do not correspond to
+   * an actual PSBT format.
+   */
+  std::map<std::string, Json::Value> psbts;
+
   /** The current best block, e.g. returned as part of gettxout.  */
   xaya::uint256 bestBlock;
 
@@ -92,6 +99,17 @@ public:
   AddUtxo (const std::string& txid, const int vout)
   {
     utxos.emplace (txid, vout);
+  }
+
+  /**
+   * Sets the JSON value that should be returned as "decoded" form
+   * of a given PSBT.  The psbt string itself is just used as lookup key,
+   * and does not correspond to a real PSBT format.
+   */
+  void
+  SetPsbt (const std::string& psbt, const Json::Value& decoded)
+  {
+    psbts[psbt] = decoded;
   }
 
   /**
@@ -128,6 +146,13 @@ public:
    * method throws.
    */
   Json::Value getblockheader (const std::string& hashStr) override;
+
+  /**
+   * Returns the previously set JSON value (with SetPsbt) for the given
+   * psbt value (which is just used as lookup key).  If the string does not
+   * correspond to a known PSBT, throws as if it were invalid.
+   */
+  Json::Value decodepsbt (const std::string& psbt) override;
 
 };
 

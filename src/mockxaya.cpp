@@ -107,4 +107,13 @@ MockXayaRpcServer::getblockheader (const std::string& hashStr)
   throw jsonrpc::JsonRpcException (-5, "unknown block hash");
 }
 
+Json::Value
+MockXayaRpcServer::decodepsbt (const std::string& psbt)
+{
+  const auto mit = psbts.find (psbt);
+  if (mit == psbts.end ())
+    throw jsonrpc::JsonRpcException (-22, "unknown psbt: " + psbt);
+  return mit->second;
+}
+
 } // namespace democrit

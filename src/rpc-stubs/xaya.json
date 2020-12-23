@@ -19,5 +19,11 @@
     "name": "getblockheader",
     "params": ["hash"],
     "returns": {}
+  },
+
+  {
+    "name": "decodepsbt",
+    "params": ["psbt"],
+    "returns": {}
   }
 ]

@@ -54,6 +54,9 @@ private:
   /** The asset being traded.  */
   const Asset asset;
 
+  /** The price per unit in satoshi.  */
+  const Amount price;
+
   /** The units of asset being traded.  */
   const Amount units;
 
@@ -61,9 +64,10 @@ public:
 
   explicit TradeChecker (const AssetSpec& as, RpcClient<XayaRpcClient>& x,
                          const std::string& b, const std::string& s,
-                         const Asset& a, const Amount u)
+                         const Asset& a, const Amount p, const Amount u)
     : spec(as), xaya(x),
-      buyer(b), seller(s), asset(a), units(u)
+      buyer(b), seller(s),
+      asset(a), price(p), units(u)
   {}
 
   TradeChecker () = delete;
@@ -83,6 +87,13 @@ public:
   std::string GetNameUpdateValue () const;
 
   /**
+   * Computes the total price of the trade in satoshi.  Returns true if all
+   * is fine (and the output value is set), and false if e.g. an overflow
+   * occurs.
+   */
+  bool GetTotalSat (Amount& total) const;
+
+  /**
    * Checks if the given trade is valid from the buyer's point of view.  This
    * mostly verifies that the seller actually has the assets and can send them,
    * based on the current GSP and blockchain state.  If it returns true, then
@@ -90,6 +101,15 @@ public:
    * one that should be used as input into the trading transaction.
    */
   bool CheckForBuyerTrade (proto::OutPoint& nameInput) const;
+
+  /**
+   * Verifies that the given PSBT matches the expectations of the seller
+   * before signing:  The correct total is paid to their seller-data provided
+   * address, and the name is updated with the expected value to their
+   * provided name address.
+   */
+  bool CheckForSellerOutputs (const std::string& psbt,
+                              const proto::SellerData& sd) const;
 
 };
 

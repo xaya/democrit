@@ -18,6 +18,7 @@
 
 #include "private/checker.hpp"
 
+#include <xayautil/jsonutils.hpp>
 #include <xayautil/uint256.hpp>
 
 #include <json/json.h>
@@ -68,6 +69,20 @@ TradeChecker::GetNameUpdateValue () const
   wbuilder["useSpecialFloats"] = false;
 
   return Json::writeString (wbuilder, mv);
+}
+
+bool
+TradeChecker::GetTotalSat (Amount& total) const
+{
+  total = price * units;
+  CHECK_GT (units, 0);
+  if (total / units != price)
+    {
+      LOG (WARNING)
+          << "Total overflow for " << units << " units of price " << price;
+      return false;
+    }
+  return true;
 }
 
 namespace
@@ -195,6 +210,121 @@ TradeChecker::CheckForBuyerTrade (proto::OutPoint& nameInput) const
       LOG (WARNING)
           << "UTXO block is not ancestor of GSP block; still syncing?\n"
           << utxoBlock.ToHex () << " vs\n" << gspBlock.ToHex ();
+      return false;
+    }
+
+  return true;
+}
+
+namespace
+{
+
+/**
+ * Returns true if the given "scriptPubKey" JSON value (as per Xaya Core's
+ * transaction-decoding RPC interface) matches the given address.
+ */
+bool
+MatchesAddress (const Json::Value& scriptPubKey, const std::string& addr)
+{
+  CHECK (scriptPubKey.isObject ());
+
+  const auto& addresses = scriptPubKey["addresses"];
+  if (!addresses.isArray () || addresses.size () != 1)
+    return false;
+
+  const auto& addrVal = addresses[0];
+  if (!addrVal.isString () || addrVal.asString () != addr)
+    return false;
+
+  return true;
+}
+
+} // anonymous namespace
+
+bool
+TradeChecker::CheckForSellerOutputs (const std::string& psbt,
+                                     const proto::SellerData& sd) const
+{
+  CHECK (sd.has_chi_address () && sd.has_name_address ());
+
+  const auto decoded = xaya->decodepsbt (psbt);
+  CHECK (decoded.isObject ());
+  const auto& tx = decoded["tx"];
+  CHECK (tx.isObject ());
+  const auto& vout = tx["vout"];
+  CHECK (vout.isArray ());
+
+  Amount expectedTotal;
+  if (!GetTotalSat (expectedTotal))
+    {
+      LOG (WARNING) << "Trade is invalid, could not compute total";
+      return false;
+    }
+
+  bool foundChi = false;
+  bool foundName = false;
+
+  /* Special case:  If the total is zero, there is no need to be paid explicitly
+     in a CHI output.  */
+  CHECK_GE (expectedTotal, 0);
+  if (expectedTotal == 0)
+    {
+      VLOG (1) << "Total is zero, no need for a CHI output";
+      foundChi = true;
+    }
+
+  for (const auto& out : vout)
+    {
+      CHECK (out.isObject ());
+      const auto& scriptPubKey = out["scriptPubKey"];
+      CHECK (scriptPubKey.isObject ());
+
+      /* Check for name operations first.  If an output is a name operation,
+         we do not want to check it (also) for the CHI payment later.  */
+      const auto& nameOp = scriptPubKey["nameOp"];
+      if (nameOp.isObject ())
+        {
+          CHECK_EQ (nameOp["name_encoding"].asString (), "utf8")
+              << "Xaya Core's -nameencoding should be set to \"utf8\"";
+          CHECK_EQ (nameOp["value_encoding"].asString (), "ascii")
+              << "Xaya Core's -valueencoding should be set to \"ascii\"";
+
+          if (nameOp["op"].asString () != "name_update")
+            continue;
+          if (nameOp["name"].asString () != GetXayaName (seller))
+            continue;
+          if (nameOp["value"].asString () != GetNameUpdateValue ())
+            continue;
+          if (!MatchesAddress (scriptPubKey, sd.name_address ()))
+            continue;
+
+          VLOG (1) << "Found output with expected name update: " << out;
+          foundName = true;
+          continue;
+        }
+
+      /* Not a name operation at all.  */
+      CHECK (nameOp.isNull ());
+
+      if (!MatchesAddress (scriptPubKey, sd.chi_address ()))
+        continue;
+      Amount payment;
+      CHECK (xaya::ChiAmountFromJson (out["value"], payment));
+      if (payment < expectedTotal)
+        continue;
+      VLOG (1) << "Found output with expected CHI payment: " << out;
+      foundChi = true;
+    }
+
+  if (!foundChi)
+    {
+      LOG (WARNING) << "Expected CHI output not found";
+      return false;
+    }
+
+  if (!foundName)
+    {
+      LOG (WARNING) << "Expected name output not found";
       return false;
     }
 
