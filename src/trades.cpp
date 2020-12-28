@@ -336,15 +336,13 @@ TradeManager::TakeOrder (const proto::Order& o, const Amount units,
           LOG (WARNING)
               << "Can't take own order:\n" << data.order ().DebugString ();
           ok = false;
+          return;
         }
-      else
+
+      Trade t(*this, s.account (), data);
+
+      try
         {
-          auto* ref = s.mutable_trades ()->Add ();
-          *ref = std::move (data);
-          ok = true;
-
-          Trade t(*this, s.account (), *ref);
-
           if (t.HasReply (msg))
             {
               /* This means we were the seller and it filled in the seller
@@ -352,9 +350,20 @@ TradeManager::TakeOrder (const proto::Order& o, const Amount units,
             }
           else
             t.InitProcessingMessage (msg);
-
-          t.SetTakingOrder (msg);
         }
+      catch (const jsonrpc::JsonRpcException& exc)
+        {
+          LOG (WARNING)
+              << "JSON-RPC exception: " << exc.what ()
+              << "\nWhile taking order:\n" << data.order ().DebugString ();
+          ok = false;
+          return;
+        }
+
+      t.SetTakingOrder (msg);
+
+      *s.mutable_trades ()->Add () = std::move (data);
+      ok = true;
     });
 
   return ok;
@@ -436,9 +445,19 @@ TradeManager::ProcessMessage (const proto::ProcessingMessage& msg,
             continue;
           CHECK (!ok);
 
-          t.HandleMessage (msg);
-          if (t.HasReply (reply))
-            ok = true;
+          try
+            {
+              t.HandleMessage (msg);
+              if (t.HasReply (reply))
+                ok = true;
+            }
+          catch (const jsonrpc::JsonRpcException& exc)
+            {
+              LOG (WARNING)
+                  << "JSON-RPC exception: " << exc.what ()
+                  << "\nWhile processing message:\n" << msg.DebugString ();
+              CHECK (!ok);
+            }
 
           break;
         }

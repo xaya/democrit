@@ -847,6 +847,69 @@ TEST_F (TradeManagerTests, ProcessingTakeBuyOrder)
   )"));
 }
 
+TEST_F (TradeManagerTests, TakeOrderException)
+{
+  /* p/invalid is considered a non-existing name by the mock Xaya RPC
+     server.  Thus taking a buy order with this name (which is then the
+     seller) will throw when it tries to fill in the seller data.  This should
+     be handled gracefully.  */
+
+  TestTradeManager inv("invalid", env);
+
+  proto::ProcessingMessage msg;
+  ASSERT_FALSE (inv.TakeOrder (ParseTextProto<proto::Order> (R"(
+    account: "other"
+    id: 42
+    asset: "gold"
+    max_units: 100
+    price_sat: 64
+    type: BID
+  )"), 100, msg));
+
+  /* No new element should have been added to our internal list of
+     trades either.  */
+  EXPECT_THAT (inv.GetTrades (), ElementsAre ());
+}
+
+TEST_F (TradeManagerTests, ProcessMessageException)
+{
+  TestTradeManager inv("invalid", env);
+  inv.SetMockTime (123);
+
+  inv.AddOrder (42, R"(
+    asset: "gold"
+    max_units: 10
+    price_sat: 5
+    type: ASK
+  )");
+
+  inv.ProcessWithoutReply (R"(
+    counterparty: "other"
+    identifier: "invalid\n42"
+    taking_order: { id: 42 units: 10 }
+  )");
+
+  /* The trade should have been added, but without seller data (since the
+     updating step raised the exception).  */
+  auto t = inv.LookupTrade ("invalid", 42);
+  ASSERT_NE (t, nullptr);
+  EXPECT_THAT (inv.GetInternalState (*t), EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 123
+    order:
+      {
+        account: "invalid"
+        id: 42
+        asset: "gold"
+        max_units: 10
+        type: ASK
+        price_sat: 5
+      }
+    units: 10
+    counterparty: "other"
+  )"));
+}
+
 TEST_F (TradeManagerTests, Archive)
 {
   tm.AddTrade (R"(
