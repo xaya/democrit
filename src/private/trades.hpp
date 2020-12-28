@@ -20,6 +20,7 @@
 #define DEMOCRIT_TRADES_HPP
 
 #include "assetspec.hpp"
+#include "private/checker.hpp"
 #include "private/myorders.hpp"
 #include "private/rpcclient.hpp"
 #include "private/state.hpp"
@@ -75,6 +76,9 @@ private:
    */
   proto::TradeState& pb;
 
+  /** TradeChecker instance based on this Trade's data.  */
+  std::unique_ptr<TradeChecker> checker;
+
   /**
    * True if pb is mutable (i.e. the instance is constructed from a non-const
    * proto::TradeState& reference).
@@ -85,13 +89,24 @@ private:
                   const proto::TradeState& p)
     : tm(t), account(a),
       pb(const_cast<proto::TradeState&> (p)), isMutable(false)
-  {}
+  {
+    checker = BuildTradeChecker ();
+  }
 
   explicit Trade (const TradeManager& t, const std::string& a,
                   proto::TradeState& p)
     : tm(t), account(a),
       pb(p), isMutable(true)
-  {}
+  {
+    checker = BuildTradeChecker ();
+  }
+
+  /**
+   * Constructs a TradeChecker instance based on this trade's data.
+   * This is called from the constructor to initialise our checker
+   * member variable, which is then used for further processing.
+   */
+  std::unique_ptr<TradeChecker> BuildTradeChecker () const;
 
   /**
    * Returns an ID that is used to identify the particular trade among
@@ -141,6 +156,22 @@ private:
    * our TradeState proto.
    */
   bool CreateSellerData ();
+
+  /**
+   * Constructs the unsigned PSBT corresponding to the underlying trade.
+   * This assumes that "we" (i.e. the wallet to which our JSON-RPC
+   * connection corresponds) are the buyer.
+   *
+   * Since this is called after the buyer checks the transaction with a
+   * TradeChecker, we have access to the TradeChecker instance (which is
+   * used to get the total value and the move).
+   *
+   * The constructed transaction will use the provided outpoint for the
+   * name input, rather than looking up the current one.  This ensures that
+   * the transaction matches the state we verified previously.
+   */
+  std::string ConstructTransaction (const TradeChecker& checker,
+                                    const proto::OutPoint& nameIn) const;
 
   friend class TestTradeManager;
   friend class TradeManager;
@@ -202,6 +233,9 @@ private:
   /** MyOrders instance used to look up, lock and unlock taken orders.  */
   MyOrders& myOrders;
 
+  /** Asset spec used for verifying and constructing trades.  */
+  const AssetSpec& spec;
+
   /**
    * RPC client for Xaya calls (e.g. to get seller addresses, check name
    * outputs or sign transactions).
@@ -240,8 +274,9 @@ protected:
 
 public:
 
-  explicit TradeManager (State& s, MyOrders& mo, RpcClient<XayaRpcClient>& x)
-    : state(s), myOrders(mo), xayaRpc(x)
+  explicit TradeManager (State& s, MyOrders& mo,
+                         const AssetSpec& as, RpcClient<XayaRpcClient>& x)
+    : state(s), myOrders(mo), spec(as), xayaRpc(x)
   {}
 
   virtual ~TradeManager () = default;

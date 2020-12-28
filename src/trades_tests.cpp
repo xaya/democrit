@@ -74,7 +74,7 @@ public:
       MyOrders(static_cast<State&> (*this), NO_EXPIRY),
       TradeManager(static_cast<State&> (*this),
                    static_cast<MyOrders&> (*this),
-                   env.GetXayaRpc ()),
+                   env.GetAssetSpec (), env.GetXayaRpc ()),
       mockTime(0), account(a)
   {}
 
@@ -195,6 +195,29 @@ public:
   GetInternalState (const Trade& t)
   {
     return t.pb;
+  }
+
+  /**
+   * Exposes Trade::ConstructTransaction to tests.  It uses an outpoint
+   * given by txid and n.
+   */
+  static std::string
+  ConstructTransaction (const Trade& t, const std::string& txid,
+                        const unsigned n)
+  {
+    proto::OutPoint nameIn;
+    nameIn.set_hash (txid);
+    nameIn.set_n (n);
+    return t.ConstructTransaction (*t.checker, nameIn);
+  }
+
+  /**
+   * Exposes a Trade's checker variable to tests.
+   */
+  static TradeChecker&
+  GetTradeChecker (const Trade& t)
+  {
+    return *t.checker;
   }
 
   using TradeManager::ArchiveFinalisedTrades;
@@ -523,6 +546,49 @@ TEST_F (TradeSellerDataTests, AddsAndRepliesSellerData)
         identifier: "me\n1"
         seller_data: { name_address: "addr 1" chi_address: "addr 2" }
       )"));
+}
+
+/* ************************************************************************** */
+
+using TradeBuyerTransactionTests = TradeStateTests;
+
+TEST_F (TradeBuyerTransactionTests, ConstructTransaction)
+{
+  tm.AddTrade (R"(
+    state: INITIATED
+    start_time: 1
+    order:
+      {
+        id: 42
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+      }
+  )");
+
+  auto t = tm.LookupTrade ("me", 42);
+  ASSERT_NE (t, nullptr);
+  const auto& pb = tm.GetInternalState (*t);
+  const auto& checker = tm.GetTradeChecker (*t);
+
+  env.GetXayaServer ().PrepareConstructTransaction (
+      "unsigned", "other",
+      13, pb.seller_data (), 30,
+      checker.GetNameUpdateValue ());
+
+  /* ConstructTransaction just does its magic, without any particular
+     corner-cases that we need to check.  But it should at least work
+     and also produce a transaction that the seller deems valid.  */
+  ASSERT_EQ (tm.ConstructTransaction (*t, "other txid", 13), "unsigned");
+  ASSERT_TRUE (checker.CheckForSellerOutputs ("unsigned", pb.seller_data ()));
 }
 
 /* ************************************************************************** */

@@ -20,8 +20,10 @@
 #define DEMOCRIT_MOCKXAYA_HPP
 
 #include "private/rpcclient.hpp"
+#include "proto/trades.pb.h"
 #include "rpc-stubs/xayarpcclient.h"
 #include "rpc-stubs/xayarpcserverstub.h"
+#include "testutils.hpp"
 
 #include <xayautil/uint256.hpp>
 
@@ -34,6 +36,7 @@
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace democrit
 {
@@ -77,11 +80,7 @@ private:
 
 public:
 
-  explicit MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
-    : XayaRpcServerStub(conn)
-  {
-    bestBlock.SetNull ();
-  }
+  explicit MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn);
 
   /**
    * Sets the best block to be returned by methods like gettxout.
@@ -111,6 +110,36 @@ public:
   {
     psbts[psbt] = decoded;
   }
+
+  /**
+   * Sets up the call expectations for joinpsbts, joining the given two PSBTs.
+   * This actually assumes they are known (from SetPsbt), and combines the
+   * joined PSBT value internally, setting it for the given combined PSBT
+   * identifier string.
+   */
+  void
+  SetJoinedPsbt (const std::vector<std::string>& psbtsIn,
+                 const std::string& combined);
+
+  /**
+   * Sets up the call expectations necessary to successfully allow a buyer
+   * to construct the unsigned trade PSBT.
+   *
+   * The seller's name is given, and its initial outpoint (i.e. the name input)
+   * is set to "nm txid:vout".  The seller's addresses are taken from the
+   * seller data, and the total sent to the seller in CHI satoshi is given as
+   * well.
+   *
+   * For the buyer, we add two CHI inputs, "buyer txid:1" and "buyer txid:2".
+   * We add one change output to "change addr" and with a dummy change value.
+   *
+   * The final constructed unsigned PSBT will be returned by
+   * Trade::ConstructTransaction with the given identifier string.
+   */
+  void PrepareConstructTransaction (const std::string& psbt,
+                                    const std::string& seller,
+                                    int vout, const proto::SellerData& sd,
+                                    Amount total, const std::string& move);
 
   /**
    * Returns the block hash that the mock server "has" at some height
@@ -154,6 +183,42 @@ public:
    */
   Json::Value decodepsbt (const std::string& psbt) override;
 
+  /**
+   * This method is a wrapper around the gmock'ed CreateFundedPsbt, which
+   * takes the raw-PSBT result and puts it into a JSON object as returned
+   * by the actual Xaya RPC method.  It also asserts that the lockTime passed
+   * in is always zero.
+   */
+  Json::Value walletcreatefundedpsbt (const Json::Value& inputs,
+                                      const Json::Value& outputs,
+                                      int lockTime,
+                                      const Json::Value& options) override;
+
+  /**
+   * Wraps the mocked NamePsbt method.  This method expects the name_op
+   * argument to be for a name-update with some value, and passes the
+   * updated name/value on to NamePsbt.  It also takes the string result
+   * of the wrapped method and returns it inside a JSON object as per the
+   * namepsbt RPC method.
+   */
+  Json::Value namepsbt (const std::string& psbt, int vout,
+                        const Json::Value& nameOp) override;
+
+  /* The following methods are just mocked using gmock and should be used
+     with explicit call expectations.  */
+  MOCK_METHOD3 (CreateFundedPsbt,
+                std::string (const Json::Value& inputs,
+                             const Json::Value& outputs,
+                             const Json::Value& options));
+  MOCK_METHOD2 (createpsbt,
+                std::string (const Json::Value& inputs,
+                             const Json::Value& outputs));
+  MOCK_METHOD4 (NamePsbt,
+                std::string (const std::string& psbt, int vout,
+                             const std::string& name,
+                             const std::string& value));
+  MOCK_METHOD1 (joinpsbts, std::string (const Json::Value& psbts));
+
 };
 
 /**
@@ -166,6 +231,9 @@ template <typename XayaServer>
 {
 
 private:
+
+  /** Asset spec for the test.  */
+  TestAssets assets;
 
   /** Port for the Xaya RPC server.  */
   const int xayaPort;
@@ -205,6 +273,15 @@ public:
   GetXayaRpc ()
   {
     return xayaClient;
+  }
+
+  /**
+   * Returns the asset spec to use.
+   */
+  TestAssets&
+  GetAssetSpec ()
+  {
+    return assets;
   }
 
 };

@@ -51,6 +51,24 @@ GetXayaName (const std::string& account)
 
 } // anonymous namespace
 
+proto::OutPoint
+GetNameOutpoint (RpcClient<XayaRpcClient>& rpc, const std::string& account)
+{
+  const auto name = rpc->name_show (GetXayaName (account));
+  CHECK (name.isObject ()) << "Invalid name_show result: " << name;
+
+  const auto outTxid = name["txid"];
+  const auto outVout = name["vout"];
+  CHECK (outTxid.isString () && outVout.isUInt ())
+      << "Invalid name_show result: " << name;
+
+  proto::OutPoint res;
+  res.set_hash (outTxid.asString ());
+  res.set_n (outVout.asUInt ());
+
+  return res;
+}
+
 std::string
 TradeChecker::GetNameUpdateValue () const
 {
@@ -166,15 +184,7 @@ TradeChecker::CheckForBuyerTrade (proto::OutPoint& nameInput) const
      will most likely actually be identical, or at the most e.g. one new
      block has been attached between the gettxout call and the GSP check.  */
 
-  const auto nameData = xaya->name_show (GetXayaName (seller));
-  CHECK (nameData.isObject ());
-  const auto txidVal = nameData["txid"];
-  CHECK (txidVal.isString ());
-  const auto voutVal = nameData["vout"];
-  CHECK (voutVal.isUInt ());
-  nameInput.Clear ();
-  nameInput.set_hash (txidVal.asString ());
-  nameInput.set_n (voutVal.asUInt ());
+  nameInput = GetNameOutpoint (xaya, seller);
 
   /* gettxout returns a JSON object when the UTXO is found, or JSON null
      if it does not exist.  libjson-rpc-cpp's generated code does not
@@ -188,7 +198,7 @@ TradeChecker::CheckForBuyerTrade (proto::OutPoint& nameInput) const
     {
       LOG (WARNING)
           << "UTXO from name_show is not found; still syncing?\n"
-          << nameData;
+          << nameInput.DebugString ();
       return false;
     }
   CHECK (utxoData.isObject ());

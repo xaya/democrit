@@ -25,5 +25,26 @@
     "name": "decodepsbt",
     "params": ["psbt"],
     "returns": {}
+  },
+
+  {
+    "name": "walletcreatefundedpsbt",
+    "params": [["inputs"], ["outputs"], 42, {"options": true}],
+    "returns": {}
+  },
+  {
+    "name": "createpsbt",
+    "params": [["inputs"], ["outputs"]],
+    "returns": "psbt"
+  },
+  {
+    "name": "namepsbt",
+    "params": ["psbt", 42, {"op": "name_update"}],
+    "returns": {}
+  },
+  {
+    "name": "joinpsbts",
+    "params": [["psbt 1", "psbt 2"]],
+    "returns": "psbt"
   }
 ]

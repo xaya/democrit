@@ -18,6 +18,9 @@
 
 #include "private/trades.hpp"
 
+#include <xayautil/jsonutils.hpp>
+
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include <sstream>
@@ -25,7 +28,38 @@
 namespace democrit
 {
 
+DEFINE_int32 (democrit_feerate_wo_names, 1'000,
+              "Fee rate (in sat/vb) to use for the trade transaction"
+              " without name input/output");
+
+/** Value paid into name outputs (in satoshis).  */
+constexpr Amount NAME_VALUE = 1'000'000;
+
 /* ************************************************************************** */
+
+std::unique_ptr<TradeChecker>
+Trade::BuildTradeChecker () const
+{
+  std::string buyer, seller;
+  switch (GetOrderType ())
+    {
+    case proto::Order::BID:
+      buyer = account;
+      seller = pb.counterparty ();
+      break;
+    case proto::Order::ASK:
+      buyer = pb.counterparty ();
+      seller = account;
+      break;
+    default:
+      LOG (FATAL) << "Unexpected order type: " << pb.order ().type ();
+    }
+
+  return std::make_unique<TradeChecker> (
+      tm.spec, tm.xayaRpc,
+      buyer, seller,
+      pb.order ().asset (), pb.order ().price_sat (), pb.units ());
+}
 
 std::string
 Trade::GetIdentifier () const
@@ -194,18 +228,96 @@ Trade::CreateSellerData ()
   proto::SellerData sd;
   sd.set_name_address (tm.xayaRpc->getnewaddress ());
   sd.set_chi_address (tm.xayaRpc->getnewaddress ());
-
-  const auto name = tm.xayaRpc->name_show ("p/" + account);
-  CHECK (name.isObject ()) << "Invalid name_show result: " << name;
-  const auto outTxid = name["txid"];
-  const auto outVout = name["vout"];
-  CHECK (outTxid.isString () && outVout.isUInt ())
-      << "Invalid name_show result: " << name;
-  sd.mutable_name_output ()->set_hash (outTxid.asString ());
-  sd.mutable_name_output ()->set_n (outVout.asUInt ());
+  *sd.mutable_name_output () = GetNameOutpoint (tm.xayaRpc, account);
 
   *pb.mutable_seller_data () = std::move (sd);
   return true;
+}
+
+std::string
+Trade::ConstructTransaction (const TradeChecker& checker,
+                             const proto::OutPoint& nameIn) const
+{
+  CHECK_EQ (GetOrderType (), proto::Order::BID)
+      << "The buyer should construct the transaction";
+  const auto& sd = pb.seller_data ();
+  CHECK (sd.has_chi_address () && sd.has_name_address ())
+      << "Missing or invalid seller data:\n" << pb.DebugString ();
+
+  VLOG (1)
+      << "Constructing trade transaction for:\n" << pb.DebugString ();
+
+  const std::string& sellerName = pb.counterparty ();
+  Amount total;
+  CHECK (checker.GetTotalSat (total));
+
+  /* First step:  Let the wallet fund a transaction paying the seller
+     their CHI, but without the name input or output.  This determines the
+     coins spent by the buyer, and also the change they get.  */
+  std::string chiPart;
+  {
+    Json::Value outputs(Json::arrayValue);
+    Json::Value cur(Json::objectValue);
+    cur[sd.chi_address ()] = xaya::ChiAmountToJson (total);
+    outputs.append (cur);
+
+    Json::Value options(Json::objectValue);
+    options["fee_rate"] = FLAGS_democrit_feerate_wo_names;
+
+    const auto resp = tm.xayaRpc->walletcreatefundedpsbt (
+        Json::Value (Json::arrayValue), outputs, 0, options);
+
+    CHECK (resp.isObject ());
+    const auto& psbtVal = resp["psbt"];
+    CHECK (psbtVal.isString ());
+    chiPart = psbtVal.asString ();
+    VLOG (1) << "Funded PSBT:\n" << chiPart;
+  }
+
+  /* Second step:  Build a transaction that just has the name input and
+     output with the desired name operation.  */
+  std::string namePart;
+  {
+    Json::Value inputs(Json::arrayValue);
+    Json::Value cur(Json::objectValue);
+    cur["txid"] = nameIn.hash ();
+    cur["vout"] = static_cast<Json::Int> (nameIn.n ());
+    inputs.append (cur);
+
+    Json::Value outputs(Json::arrayValue);
+    cur = Json::Value (Json::objectValue);
+    cur[sd.name_address ()] = xaya::ChiAmountToJson (NAME_VALUE);
+    outputs.append (cur);
+
+    namePart = tm.xayaRpc->createpsbt (inputs, outputs);
+
+    Json::Value nameOp(Json::objectValue);
+    nameOp["op"] = "name_update";
+    nameOp["name"] = "p/" + sellerName;
+    nameOp["value"] = checker.GetNameUpdateValue ();
+
+    const auto resp = tm.xayaRpc->namepsbt (namePart, 0, nameOp);
+
+    CHECK (resp.isObject ());
+    const auto& psbtVal = resp["psbt"];
+    CHECK (psbtVal.isString ());
+    namePart = psbtVal.asString ();
+    VLOG (1) << "PSBT with just the name operation:\n" << namePart;
+  }
+
+  /* Third step:  Combine the two PSBTs (CHI and name parts) into a single
+     one with both their inputs and outputs.  */
+  std::string psbt;
+  {
+    Json::Value psbts(Json::arrayValue);
+    psbts.append (chiPart);
+    psbts.append (namePart);
+
+    psbt = tm.xayaRpc->joinpsbts (psbts);
+    VLOG (1) << "Final unsigned PSBT:\n" << psbt;
+  }
+
+  return psbt;
 }
 
 bool

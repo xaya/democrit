@@ -30,6 +30,13 @@ namespace democrit
 {
 
 /**
+ * Uses name_show to query for the current outpoint of a name, including
+ * sanity-checking the response.
+ */
+proto::OutPoint GetNameOutpoint (RpcClient<XayaRpcClient>& rpc,
+                                 const std::string& account);
+
+/**
  * Helper class that implements the verification of trades before the
  * buyer or seller signs them, i.e. the critical things that could result
  * in loss of funds if done wrong.

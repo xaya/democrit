@@ -19,13 +19,22 @@
 #include "mockxaya.hpp"
 
 #include <xayautil/hash.hpp>
+#include <xayautil/jsonutils.hpp>
 
 #include <jsonrpccpp/common/exception.h>
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include <sstream>
 
 namespace democrit
 {
+
+using testing::_;
+using testing::Return;
+
+DECLARE_int32 (democrit_feerate_wo_names);
 
 int
 GetPortForMockServer ()
@@ -34,6 +43,169 @@ GetPortForMockServer ()
   ++cnt;
 
   return 2'000 + (cnt % 1'000);
+}
+
+MockXayaRpcServer::MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
+  : XayaRpcServerStub(conn)
+{
+  bestBlock.SetNull ();
+
+  /* By default, we do not want any of the gmock'ed methods to be called.
+     Call expectations should be set explicitly by the tests for methods
+     they need.  */
+  EXPECT_CALL (*this, CreateFundedPsbt (_, _, _)).Times (0);
+  EXPECT_CALL (*this, createpsbt (_, _)).Times (0);
+  EXPECT_CALL (*this, NamePsbt (_, _, _, _)).Times (0);
+  EXPECT_CALL (*this, joinpsbts (_)).Times (0);
+}
+
+namespace
+{
+
+/**
+ * Appends all elements from a JSON array to another JSON array.
+ */
+void
+ExtendJson (Json::Value& out, const Json::Value& in)
+{
+  CHECK (out.isArray ());
+  CHECK (in.isArray ());
+
+  for (const auto& entry : in)
+    out.append (entry);
+}
+
+} // anonymous namespace
+
+void
+MockXayaRpcServer::SetJoinedPsbt (const std::vector<std::string>& psbtsIn,
+                                  const std::string& combined)
+{
+  Json::Value psbtArr(Json::arrayValue);
+  auto res = ParseJson (R"({
+    "tx":
+      {
+        "vin": [],
+        "vout": []
+      },
+    "inputs": [],
+    "outputs": []
+  })");
+
+  for (const auto& part : psbtsIn)
+    {
+      psbtArr.append (part);
+      const auto& decodedPart = psbts.at (part);
+      ExtendJson (res["tx"]["vin"], decodedPart["tx"]["vin"]);
+      ExtendJson (res["tx"]["vout"], decodedPart["tx"]["vout"]);
+      ExtendJson (res["inputs"], decodedPart["inputs"]);
+      ExtendJson (res["outputs"], decodedPart["outputs"]);
+    }
+
+  SetPsbt (combined, res);
+  EXPECT_CALL (*this, joinpsbts (psbtArr)).WillRepeatedly (Return (combined));
+}
+
+void
+MockXayaRpcServer::PrepareConstructTransaction (
+    const std::string& psbt,
+    const std::string& seller, const int vout, const proto::SellerData& sd,
+    const Amount total, const std::string& move)
+{
+  FLAGS_democrit_feerate_wo_names = 100;
+  const auto jsonTotal = xaya::ChiAmountToJson (total);
+
+  {
+    auto outputs = ParseJson ("[{}]");
+    outputs[0][sd.chi_address ()] = jsonTotal;
+
+    EXPECT_CALL (*this, CreateFundedPsbt (
+        ParseJson ("[]"),
+        outputs,
+        ParseJson (R"({
+          "fee_rate": 100
+        })"))
+    ).WillRepeatedly (Return ("chi part"));
+
+    auto decoded = ParseJson (R"({
+      "tx":
+        {
+          "vin":
+            [
+              {"txid": "buyer txid", "vout": 1},
+              {"txid": "buyer txid", "vout": 2}
+            ],
+          "vout":
+            [
+              {
+                "scriptPubKey": {"addresses": ["dummy"]}
+              },
+              {
+                "value": 1.5,
+                "scriptPubKey": {"addresses": ["change addr"]}
+              }
+            ]
+        },
+      "inputs": [{}, {}],
+      "outputs": [{}, {}]
+    })");
+    auto& chiOut = decoded["tx"]["vout"][0];
+    chiOut["value"] = jsonTotal;
+    chiOut["scriptPubKey"]["addresses"][0] = sd.chi_address ();
+    SetPsbt ("chi part", decoded);
+  }
+
+  {
+    auto inputs = ParseJson (R"([
+      {"txid": "dummy"}
+    ])");
+    inputs[0]["vout"] = vout;
+    inputs[0]["txid"] = seller + " txid";
+
+    auto outputs = ParseJson ("[{}]");
+    outputs[0][sd.name_address ()] = 0.01;
+
+    EXPECT_CALL (*this, createpsbt (inputs, outputs))
+        .WillRepeatedly (Return ("raw name part"));
+    EXPECT_CALL (*this, NamePsbt ("raw name part", 0, "p/" + seller, move))
+        .WillRepeatedly (Return ("name part"));
+
+    auto decoded = ParseJson (R"({
+      "tx":
+        {
+          "vin":
+            [
+              {"txid": "dummy", "vout": 12}
+            ],
+          "vout":
+            [
+              {
+                "value": 0.01,
+                "scriptPubKey":
+                  {
+                    "nameOp":
+                      {
+                        "op": "name_update",
+                        "name_encoding": "utf8",
+                        "value_encoding": "ascii"
+                      },
+                    "addresses": ["dummy"]
+                  }
+              }
+            ]
+        },
+      "inputs": [{}],
+      "outputs": [{}]
+    })");
+    decoded["tx"]["vin"][0]["txid"] = seller + " txid";
+    auto& nameScript = decoded["tx"]["vout"][0]["scriptPubKey"];
+    nameScript["nameOp"]["name"] = "p/" + seller;
+    nameScript["nameOp"]["value"] = move;
+    nameScript["addresses"][0] = sd.name_address ();
+    SetPsbt ("name part", decoded);
+  }
+
+  SetJoinedPsbt ({"chi part", "name part"}, psbt);
 }
 
 xaya::uint256
@@ -114,6 +286,44 @@ MockXayaRpcServer::decodepsbt (const std::string& psbt)
   if (mit == psbts.end ())
     throw jsonrpc::JsonRpcException (-22, "unknown psbt: " + psbt);
   return mit->second;
+}
+
+Json::Value
+MockXayaRpcServer::walletcreatefundedpsbt (const Json::Value& inputs,
+                                           const Json::Value& outputs,
+                                           const int lockTime,
+                                           const Json::Value& options)
+{
+  CHECK_EQ (lockTime, 0) << "lockTime should be passed as zero";
+
+  Json::Value res(Json::objectValue);
+  res["psbt"] = CreateFundedPsbt (inputs, outputs, options);
+
+  return res;
+}
+
+Json::Value
+MockXayaRpcServer::namepsbt (const std::string& psbt, const int vout,
+                             const Json::Value& nameOp)
+{
+  CHECK (nameOp.isObject ());
+  CHECK_EQ (nameOp.size (), 3);
+
+  const auto& opVal = nameOp["op"];
+  CHECK (opVal.isString ());
+  CHECK_EQ (opVal.asString (), "name_update");
+
+  const auto& nameVal = nameOp["name"];
+  CHECK (nameVal.isString ());
+
+  const auto& valueVal = nameOp["value"];
+  CHECK (valueVal.isString ());
+
+  Json::Value res(Json::objectValue);
+  res["psbt"] = NamePsbt (psbt, vout,
+                          nameVal.asString (), valueVal.asString ());
+
+  return res;
 }
 
 } // namespace democrit
