@@ -42,6 +42,18 @@ message TakingOrder
 }
 
 /**
+ * Message telling the counterparty about the constructed PSBT or an update
+ * to the existing PSBT with our signatures.
+ */
+message TradePsbt
+{
+
+  /** The new or updated PSBT in base64 form.  */
+  optional string psbt = 1;
+
+}
+
+/**
  * A message sent via XMPP direct messages between the two parties finalising
  * a trade between them.
  */
@@ -76,5 +88,8 @@ message ProcessingMessage
 
   /** The seller telling the buyer their addresses.  */
   optional SellerData seller_data = 102;
+
+  /** A new or updated PSBT for the trade.  */
+  optional TradePsbt psbt = 103;
 
 }

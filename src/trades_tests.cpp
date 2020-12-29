@@ -282,12 +282,22 @@ protected:
   void
   ExpectNoReply (const std::string& state)
   {
+    EXPECT_THAT (ExpectNoReplyAndGetNewState (state), EqualsTradeState (state));
+  }
+
+  /**
+   * Checks that the trade with state as per the passed-in text proto
+   * has no reply to the counterparty, and returns the new state.
+   */
+  proto::TradeState
+  ExpectNoReplyAndGetNewState (const std::string& state)
+  {
     auto t = tm.GetTrade (state);
 
     proto::ProcessingMessage reply;
     EXPECT_FALSE (t->HasReply (reply));
 
-    EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (state));
+    return tm.GetInternalState (*t);
   }
 
   /**
@@ -550,7 +560,79 @@ TEST_F (TradeSellerDataTests, AddsAndRepliesSellerData)
 
 /* ************************************************************************** */
 
-using TradeBuyerTransactionTests = TradeStateTests;
+using TradeReceivingPsbtTests = TradeStateTests;
+
+TEST_F (TradeReceivingPsbtTests, NewPsbtAdded)
+{
+  EXPECT_THAT (
+      HandleMessage (R"(
+        state: INITIATED
+        order: { account: "me" type: BID }
+        our_psbt: "foo"
+      )", R"(
+        psbt: { psbt: "bar" }
+      )"),
+      EqualsTradeState (R"(
+        state: INITIATED
+        order: { account: "me" type: BID }
+        our_psbt: "foo"
+        their_psbt: "bar"
+      )"));
+}
+
+TEST_F (TradeReceivingPsbtTests, AlreadyHavePsbt)
+{
+  ExpectNoStateChange (R"(
+    state: INITIATED
+    order: { account: "me" type: ASK }
+    their_psbt: "foo"
+  )", R"(
+    psbt: { psbt: "bar" }
+  )");
+}
+
+/* ************************************************************************** */
+
+class TradeBuyerTransactionTests : public TradeStateTests
+{
+
+protected:
+
+  TradeBuyerTransactionTests ()
+  {
+    const auto blk = MockXayaRpcServer::GetBlockHash (10);
+
+    auto& srv = env.GetXayaServer ();
+    srv.SetBestBlock (blk);
+    srv.AddUtxo ("me txid", 12);
+    srv.AddUtxo ("other txid", 12);
+
+    auto& spec = env.GetAssetSpec ();
+    spec.SetBalance ("me", "gold", 100);
+    spec.SetBalance ("other", "gold", 100);
+    spec.SetBlock (blk);
+  }
+
+  /**
+   * Sets up the mock expectations for constructing the transaction
+   * to the given buyer for 3 gold and with standard "addr 1" / "addr 2"
+   * seller data.  The PSBT identifier of the unsigned tx will be "unsigned".
+   */
+  void
+  PrepareGoldTransaction (const std::string& buyer, const std::string& seller)
+  {
+    const std::string move =
+        R"({"g":{"dem":{},"test":{"amount":3,"asset":"gold","to":")"
+          + buyer + R"("}}})";
+    const auto sd = ParseTextProto<proto::SellerData> (R"(
+      name_address: "addr 1"
+      chi_address: "addr 2"
+    )");
+    env.GetXayaServer ().PrepareConstructTransaction ("unsigned", seller,
+                                                      12, sd, 30, move);
+  }
+
+};
 
 TEST_F (TradeBuyerTransactionTests, ConstructTransaction)
 {
@@ -590,6 +672,439 @@ TEST_F (TradeBuyerTransactionTests, ConstructTransaction)
   ASSERT_EQ (tm.ConstructTransaction (*t, "other txid", 13), "unsigned");
   ASSERT_TRUE (checker.CheckForSellerOutputs ("unsigned", pb.seller_data ()));
 }
+
+TEST_F (TradeBuyerTransactionTests, WaitingForSellerData)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 3
+    counterparty: "other"
+  )");
+}
+
+TEST_F (TradeBuyerTransactionTests, AlreadyHavePsbt)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 3
+    counterparty: "other"
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+    our_psbt: "foo"
+  )");
+}
+
+TEST_F (TradeBuyerTransactionTests, TradeCheckFails)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 1001
+    counterparty: "other"
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )");
+}
+
+TEST_F (TradeBuyerTransactionTests, BuyerSignedEverything)
+{
+  PrepareGoldTransaction ("me", "other");
+  env.GetXayaServer ().SetSignedPsbt ("signed", "unsigned",
+                                      {"buyer txid", "other txid"});
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        id: 42
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 3
+    counterparty: "other"
+    seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+  )");
+}
+
+TEST_F (TradeBuyerTransactionTests, BuyerIsMaker)
+{
+  PrepareGoldTransaction ("me", "other");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
+
+  EXPECT_THAT (
+      ExpectReplyAndNewState (R"(
+            state: INITIATED
+            order:
+              {
+                id: 42
+                account: "me"
+                asset: "gold"
+                price_sat: 10
+                type: BID
+              }
+            units: 3
+            counterparty: "other"
+            seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+          )", R"(
+            state: INITIATED
+            order:
+              {
+                id: 42
+                account: "me"
+                asset: "gold"
+                price_sat: 10
+                type: BID
+              }
+            units: 3
+            counterparty: "other"
+            seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+            our_psbt: "partial"
+      )"),
+      EqualsProcessingMessage (R"(
+        counterparty: "other"
+        identifier: "me\n42"
+        psbt: { psbt: "unsigned" }
+      )"));
+}
+
+TEST_F (TradeBuyerTransactionTests, BuyerIsTaker)
+{
+  PrepareGoldTransaction ("me", "other");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
+
+  EXPECT_THAT (
+      ExpectReplyAndNewState (R"(
+            state: INITIATED
+            order:
+              {
+                id: 42
+                account: "other"
+                asset: "gold"
+                price_sat: 10
+                type: ASK
+              }
+            units: 3
+            counterparty: "other"
+            seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+          )", R"(
+            state: PENDING
+            order:
+              {
+                id: 42
+                account: "other"
+                asset: "gold"
+                price_sat: 10
+                type: ASK
+              }
+            units: 3
+            counterparty: "other"
+            seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+            our_psbt: "partial"
+      )"),
+      EqualsProcessingMessage (R"(
+        counterparty: "other"
+        identifier: "other\n42"
+        psbt: { psbt: "partial" }
+      )"));
+}
+
+/* ************************************************************************** */
+
+using TradeSellerTransactionTests = TradeBuyerTransactionTests;
+
+TEST_F (TradeSellerTransactionTests, NoTransactionYet)
+{
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: ASK
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 12 }
+      }
+  )");
+}
+
+TEST_F (TradeSellerTransactionTests, OutputsCheckFails)
+{
+  PrepareGoldTransaction ("other", "me");
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: ASK
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "wrong address"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 12 }
+      }
+    their_psbt: "unsigned"
+  )");
+}
+
+TEST_F (TradeSellerTransactionTests, SignedWrongInput)
+{
+  PrepareGoldTransaction ("other", "me");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"me txid"});
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: ASK
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 999 }
+      }
+    their_psbt: "unsigned"
+  )");
+}
+
+TEST_F (TradeSellerTransactionTests, SellerMakerTxNotComplete)
+{
+  PrepareGoldTransaction ("other", "me");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"me txid"});
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "me"
+        asset: "gold"
+        price_sat: 10
+        type: ASK
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 12 }
+      }
+    their_psbt: "unsigned"
+  )");
+}
+
+TEST_F (TradeSellerTransactionTests, SellerTakerTxComplete)
+{
+  PrepareGoldTransaction ("other", "me");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
+  env.GetXayaServer ().SetSignedPsbt ("signed", "partial", {"me txid"});
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order:
+      {
+        account: "other"
+        asset: "gold"
+        price_sat: 10
+        type: BID
+      }
+    units: 3
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "me txid" n: 12 }
+      }
+    their_psbt: "partial"
+  )");
+}
+
+TEST_F (TradeSellerTransactionTests, SellerIsMaker)
+{
+  PrepareGoldTransaction ("other", "me");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
+  env.GetXayaServer ().SetSignedPsbt ("full", "partial", {"me txid"});
+
+  EXPECT_THAT (
+      ExpectNoReplyAndGetNewState (R"(
+        state: INITIATED
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: ASK
+          }
+        units: 3
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+        their_psbt: "partial"
+      )"),
+    EqualsTradeState (R"(
+        state: PENDING
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: ASK
+          }
+        units: 3
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+        their_psbt: "partial"
+        our_psbt: "full"
+    )"));
+}
+
+TEST_F (TradeSellerTransactionTests, SellerIsTaker)
+{
+  PrepareGoldTransaction ("other", "me");
+  env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"me txid"});
+
+  EXPECT_THAT (
+      ExpectReplyAndNewState (R"(
+        state: INITIATED
+        order:
+          {
+            id: 42
+            account: "other"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+        their_psbt: "unsigned"
+      )", R"(
+        state: PENDING
+        order:
+          {
+            id: 42
+            account: "other"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+        their_psbt: "unsigned"
+        our_psbt: "partial"
+      )"),
+      EqualsProcessingMessage (R"(
+        counterparty: "other"
+        identifier: "other\n42"
+        psbt: { psbt: "partial" }
+      )"));
+}
+
+/* ************************************************************************** */
+
+using TradeMakerBuyerFinalisationTests = TradeBuyerTransactionTests;
+
+TEST_F (TradeMakerBuyerFinalisationTests, Success)
+{
+  PrepareGoldTransaction ("me", "other");
+  env.GetXayaServer ().SetSignedPsbt ("my partial", "unsigned", {"buyer txid"});
+  env.GetXayaServer ().SetSignedPsbt ("other partial", "unsigned",
+                                      {"other txid"});
+
+  EXPECT_THAT (
+      ExpectNoReplyAndGetNewState (R"(
+        state: INITIATED
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+        our_psbt: "my partial"
+        their_psbt: "their partial"
+      )"),
+    EqualsTradeState (R"(
+        state: PENDING
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+        our_psbt: "my partial"
+        their_psbt: "their partial"
+    )"));
+}
+
+/* FIXME: Test for the situation where combinepsbt returns a non-completed
+   transaction (because their_psbt was unsigned).  */
 
 /* ************************************************************************** */
 
@@ -867,8 +1382,11 @@ TEST_F (TradeManagerTests, ProcessingTakeBuyOrder)
     type: BID
   )");
 
-  /* FIXME: In the future (when buyer-builds-unsigned-tx is implemented), this
-     will actually return a reply.  */
+  /* This will kick off transaction creation by the buyer; but in this
+     special situation, the trade is actually invalid and thus there
+     won't be a reply.  In this test we only want to make sure the trade
+     is created correctly, so this doesn't matter (and is the simplest way
+     to do this test).  */
   tm.ProcessWithoutReply (R"(
     counterparty: "other"
     identifier: "me\n42"
@@ -1113,15 +1631,56 @@ class TradeFlowTests : public testing::Test
 
 protected:
 
-  TestEnvironment<MockXayaRpcServer> env;
+  /* We need two separate mock environments for buyer and seller so that
+     they can react differently to "walletprocesspsbt(unsigned)".  */
+  TestEnvironment<MockXayaRpcServer> envBuyer;
+  TestEnvironment<MockXayaRpcServer> envSeller;
+
   TestTradeManager buyer;
   TestTradeManager seller;
 
   TradeFlowTests ()
-    : buyer("buyer", env), seller("seller", env)
+    : buyer("buyer", envBuyer), seller("seller", envSeller)
   {
     buyer.SetMockTime (123);
     seller.SetMockTime (123);
+
+    const auto blk = MockXayaRpcServer::GetBlockHash (10);
+
+    for (auto* env : {&envBuyer, &envSeller})
+      {
+        auto& srv = env->GetXayaServer ();
+        srv.SetBestBlock (blk);
+        srv.AddUtxo ("seller txid", 12);
+
+        auto& spec = env->GetAssetSpec ();
+        spec.InitialiseAccount ("buyer");
+        spec.SetBalance ("seller", "gold", 10);
+        spec.SetBalance ("seller", "silver", 10);
+        spec.SetBlock (blk);
+      }
+  }
+
+  /**
+   * Sets up the mock expectations for constructing the trade transaction
+   * for "buyer" and "seller" and the given amount of asset.
+   */
+  void
+  PrepareTradeTransaction (const Asset& asset, const Amount units,
+                           const Amount total)
+  {
+    std::ostringstream mv;
+    mv << R"({"g":{"dem":{},"test":{"amount":)" << units
+       << R"(,"asset":")" << asset << R"(","to":"buyer"}}})";
+    const auto sd = ParseTextProto<proto::SellerData> (R"(
+      name_address: "addr 1"
+      chi_address: "addr 2"
+    )");
+
+    /* Both buyer and seller need to know about the transaction.  */
+    for (auto* env : {&envBuyer, &envSeller})
+      env->GetXayaServer ().PrepareConstructTransaction (
+          "unsigned", "seller", 12, sd, total, mv.str ());
   }
 
   /**
@@ -1166,6 +1725,22 @@ protected:
 
 TEST_F (TradeFlowTests, TakingBuyOrder)
 {
+  PrepareTradeTransaction ("gold", 3, 30);
+
+  /* Setting up the signing here is a bit tricky.  We want both seller and
+     buyer to know the PSBTs involved, but we want the seller and buyer
+     to return their respective signed PSBTs from walletprocesspsbt.  */
+  for (auto* env : {&envBuyer, &envSeller})
+    {
+      auto& srv = env->GetXayaServer ();
+      srv.SetSignedPsbt ("buyer signed", "unsigned", {"buyer txid"});
+      srv.SetSignedPsbt ("seller signed", "unsigned", {"seller txid"});
+    }
+  envBuyer.GetXayaServer ()
+      .SetSignedPsbt ("buyer signed", "unsigned", {"buyer txid"});
+  envSeller.GetXayaServer ()
+      .SetSignedPsbt ("seller signed", "unsigned", {"seller txid"});
+
   buyer.AddOrder (1, R"(
     asset: "gold"
     max_units: 5
@@ -1199,7 +1774,7 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
   )"));
   EXPECT_THAT (buyer.GetTrades (), ElementsAre (
     EqualsTrade (R"(
-      state: INITIATED
+      state: PENDING
       start_time: 123
       counterparty: "seller"
       type: BID
@@ -1211,7 +1786,7 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
   ));
   EXPECT_THAT (buyer.GetInternalState (*buyer.LookupTrade ("buyer", 1)),
                EqualsTradeState (R"(
-    state: INITIATED
+    state: PENDING
     start_time: 123
     order:
       {
@@ -1225,6 +1800,8 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
     counterparty: "seller"
     units: 3
     seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+    our_psbt: "buyer signed"
+    their_psbt: "seller signed"
   )"));
 
   EXPECT_THAT (seller.GetOrders (), EqualsOrdersOfAccount (R"(
@@ -1232,7 +1809,7 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
   )"));
   EXPECT_THAT (seller.GetTrades (), ElementsAre (
     EqualsTrade (R"(
-      state: INITIATED
+      state: PENDING
       start_time: 123
       counterparty: "buyer"
       type: ASK
@@ -1244,7 +1821,7 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
   ));
   EXPECT_THAT (seller.GetInternalState (*seller.LookupTrade ("buyer", 1)),
                EqualsTradeState (R"(
-    state: INITIATED
+    state: PENDING
     start_time: 123
     order:
       {
@@ -1263,11 +1840,21 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
         chi_address: "addr 2"
         name_output: { hash: "seller txid" n: 12 }
       }
+    their_psbt: "unsigned"
+    our_psbt: "seller signed"
   )"));
 }
 
 TEST_F (TradeFlowTests, TakingSellOrder)
 {
+  PrepareTradeTransaction ("silver", 1, 5);
+  for (auto* env : {&envBuyer, &envSeller})
+    {
+      auto& srv = env->GetXayaServer ();
+      srv.SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
+      srv.SetSignedPsbt ("signed", "partial", {"seller txid"});
+    }
+
   seller.AddOrder (1, R"(
     asset: "silver"
     max_units: 1
@@ -1289,7 +1876,7 @@ TEST_F (TradeFlowTests, TakingSellOrder)
   )"));
   EXPECT_THAT (buyer.GetTrades (), ElementsAre (
     EqualsTrade (R"(
-      state: INITIATED
+      state: PENDING
       start_time: 123
       counterparty: "seller"
       type: BID
@@ -1301,7 +1888,7 @@ TEST_F (TradeFlowTests, TakingSellOrder)
   ));
   EXPECT_THAT (buyer.GetInternalState (*buyer.LookupTrade ("seller", 1)),
                EqualsTradeState (R"(
-    state: INITIATED
+    state: PENDING
     start_time: 123
     order:
       {
@@ -1315,6 +1902,7 @@ TEST_F (TradeFlowTests, TakingSellOrder)
     counterparty: "seller"
     units: 1
     seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+    our_psbt: "partial"
   )"));
 
   EXPECT_THAT (seller.GetOrders (), EqualsOrdersOfAccount (R"(
@@ -1334,7 +1922,7 @@ TEST_F (TradeFlowTests, TakingSellOrder)
   )"));
   EXPECT_THAT (seller.GetTrades (), ElementsAre (
     EqualsTrade (R"(
-      state: INITIATED
+      state: PENDING
       start_time: 123
       counterparty: "buyer"
       type: ASK
@@ -1346,7 +1934,7 @@ TEST_F (TradeFlowTests, TakingSellOrder)
   ));
   EXPECT_THAT (seller.GetInternalState (*seller.LookupTrade ("seller", 1)),
                EqualsTradeState (R"(
-    state: INITIATED
+    state: PENDING
     start_time: 123
     order:
       {
@@ -1365,6 +1953,8 @@ TEST_F (TradeFlowTests, TakingSellOrder)
         chi_address: "addr 2"
         name_output: { hash: "seller txid" n: 12 }
       }
+    their_psbt: "partial"
+    our_psbt: "signed"
   )"));
 }
 

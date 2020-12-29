@@ -57,6 +57,7 @@ MockXayaRpcServer::MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
   EXPECT_CALL (*this, createpsbt (_, _)).Times (0);
   EXPECT_CALL (*this, NamePsbt (_, _, _, _)).Times (0);
   EXPECT_CALL (*this, joinpsbts (_)).Times (0);
+  EXPECT_CALL (*this, walletprocesspsbt (_)).Times (0);
 }
 
 namespace
@@ -206,6 +207,36 @@ MockXayaRpcServer::PrepareConstructTransaction (
   }
 
   SetJoinedPsbt ({"chi part", "name part"}, psbt);
+}
+
+void
+MockXayaRpcServer::SetSignedPsbt (const std::string& signedPsbt,
+                                  const std::string& psbt,
+                                  const std::set<std::string>& signTxids)
+{
+  auto decoded = psbts.at (psbt);
+  CHECK_EQ (decoded["tx"]["vin"].size (), decoded["inputs"].size ())
+      << decoded;
+
+  bool complete = true;
+  for (unsigned i = 0; i < decoded["tx"]["vin"].size (); ++i)
+    {
+      auto& inp = decoded["inputs"][i];
+
+      if (signTxids.count (decoded["tx"]["vin"][i]["txid"].asString ()) > 0)
+        inp["signed"] = true;
+
+      if (!inp.isMember ("signed") || !inp["signed"].asBool ())
+        complete = false;
+    }
+
+  Json::Value result(Json::objectValue);
+  result["psbt"] = signedPsbt;
+  result["complete"] = complete;
+
+  SetPsbt (signedPsbt, decoded);
+  EXPECT_CALL (*this, walletprocesspsbt (psbt))
+      .WillRepeatedly (Return (result));
 }
 
 xaya::uint256

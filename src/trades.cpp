@@ -204,6 +204,22 @@ Trade::MergeSellerData (const proto::SellerData& sd)
 }
 
 void
+Trade::MergePsbt (const proto::TradePsbt& psbt)
+{
+  if (pb.has_their_psbt ())
+    {
+      LOG (WARNING)
+          << "Received PSBT but already have the counterparty's:"
+          << "\nExisting:\n" << pb.their_psbt ()
+          << "\nSent:\n" << psbt.DebugString ();
+      return;
+    }
+
+  pb.set_their_psbt (psbt.psbt ());
+  VLOG (1) << "Got PSBT from counterparty:\n" << pb.their_psbt ();
+}
+
+void
 Trade::HandleMessage (const proto::ProcessingMessage& msg)
 {
   CHECK (isMutable) << "Trade instance is not mutable";
@@ -215,6 +231,9 @@ Trade::HandleMessage (const proto::ProcessingMessage& msg)
 
   if (msg.has_seller_data ())
     MergeSellerData (msg.seller_data ());
+
+  if (msg.has_psbt ())
+    MergePsbt (msg.psbt ());
 }
 
 bool
@@ -320,6 +339,32 @@ Trade::ConstructTransaction (const TradeChecker& checker,
   return psbt;
 }
 
+namespace
+{
+
+/**
+ * Calls walletprocesspsbt on the RPC connection to sign a transaction and
+ * parses the expected result into psbt string and complete flag.
+ */
+std::string
+SignPsbt (RpcClient<XayaRpcClient>& rpc, const std::string& psbt,
+          bool& complete)
+{
+  const auto reply = rpc->walletprocesspsbt (psbt);
+  CHECK (reply.isObject ());
+
+  const auto& psbtVal = reply["psbt"];
+  CHECK (psbtVal.isString ());
+
+  const auto& completeVal = reply["complete"];
+  CHECK (completeVal.isBool ());
+
+  complete = completeVal.asBool ();
+  return psbtVal.asString ();
+}
+
+} // anonymous namespace
+
 bool
 Trade::HasReply (proto::ProcessingMessage& reply)
 {
@@ -332,6 +377,8 @@ Trade::HasReply (proto::ProcessingMessage& reply)
 
   InitProcessingMessage (reply);
 
+  /* First we need to handle the seller-data exchange.  We need that done
+     before proceeding further in the process in any case.  */
   if (CreateSellerData ())
     {
       CHECK (pb.has_seller_data ());
@@ -342,7 +389,151 @@ Trade::HasReply (proto::ProcessingMessage& reply)
 
       return true;
     }
+  if (!pb.has_seller_data ())
+    return false;
 
+  /* If we are the seller and don't yet have received a PSBT from the
+     counterparty, we need to wait for them.  */
+  if (GetOrderType () == proto::Order::ASK && !pb.has_their_psbt ())
+    return false;
+
+  /* If we are the seller, have the counterparty's PSBT but not yet ours
+     filled in, we sign the PSBT and fill it into our_psbt.  */
+  if (GetOrderType () == proto::Order::ASK && !pb.has_our_psbt ())
+    {
+      CHECK (pb.has_their_psbt ());
+
+      if (!checker->CheckForSellerOutputs (pb.their_psbt (), pb.seller_data ()))
+        {
+          LOG (WARNING) << "Buyer provided invalid PSBT for the trade";
+          return false;
+        }
+
+      bool complete;
+      const auto psbt = SignPsbt (tm.xayaRpc, pb.their_psbt (), complete);
+
+      if (!checker->CheckForSellerSignature (pb.their_psbt (), psbt,
+                                             pb.seller_data ()))
+        {
+          LOG (WARNING) << "Signing PSBT as seller provided invalid signatures";
+          return false;
+        }
+
+      switch (GetRole ())
+        {
+        case proto::Trade::MAKER:
+          if (!complete)
+            {
+              LOG (WARNING)
+                  << "We are maker/seller, but the PSBT is not complete yet";
+              return false;
+            }
+          break;
+
+        case proto::Trade::TAKER:
+          if (complete)
+            {
+              LOG (WARNING)
+                  << "We are taker/seller and the PSBT is already complete";
+              return false;
+            }
+          break;
+
+        default:
+          LOG (FATAL) << "Unexpected role: " << GetRole ();
+        }
+
+      pb.set_our_psbt (psbt);
+      VLOG (1) << "Our signed PSBT:\n" << pb.our_psbt ();
+    }
+
+  /* If we are the buyer and don't yet have a PSBT constructed, do that now
+     and share it with the counterparty.  */
+  if (GetOrderType () == proto::Order::BID && !pb.has_our_psbt ())
+    {
+      proto::OutPoint nameIn;
+      if (!checker->CheckForBuyerTrade (nameIn))
+        {
+          LOG (WARNING) << "Seller cannot fulfill the trade";
+          return false;
+        }
+
+      const auto unsignedPsbt = ConstructTransaction (*checker, nameIn);
+
+      bool complete;
+      const auto signedPsbt = SignPsbt (tm.xayaRpc, unsignedPsbt, complete);
+
+      if (!checker->CheckForBuyerSignature (unsignedPsbt, signedPsbt))
+        {
+          LOG (WARNING) << "Signing PSBT as buyer provided invalid signatures";
+          /* FIXME: We want to abandon the trade here actually, so that
+             (later) any locked inputs in our wallet from ConstructTransaction
+             get unlocked correctly.  */
+          return false;
+        }
+
+      /* CheckForBuyerSignature verifies that all but one inputs are signed.
+         Since the initial transaction was unsigned, it cannot be complete.  */
+      CHECK (!complete);
+
+      pb.set_our_psbt (signedPsbt);
+      VLOG (1) << "Constructed and partially-signed PSBT:\n" << pb.our_psbt ();
+
+      /* If we are maker as well as buyer, then there is an extra hop where
+         we share the *unsigned* transaction and still need to wait for
+         the counterparty before finishing everything off.  */
+      if (GetRole () == proto::Trade::MAKER)
+        {
+          reply.mutable_psbt ()->set_psbt (unsignedPsbt);
+          VLOG (1)
+              << "Sharing unsigned PSBT with counterparty:\n"
+              << reply.DebugString ();
+          return true;
+        }
+    }
+
+  /* When we made it here, we have in any case filled in our PSBT.  If we are
+     the taker, this is the point where we share it with the counterparty
+     and from then on just need to wait for network confirmation.  */
+  CHECK (pb.has_our_psbt ());
+  if (GetRole () == proto::Trade::TAKER)
+    {
+      reply.mutable_psbt ()->set_psbt (pb.our_psbt ());
+      VLOG (1)
+          << "Sharing our PSBT with the counterparty as taker:\n"
+          << reply.DebugString ();
+      pb.set_state (proto::Trade::PENDING);
+      return true;
+    }
+
+  /* We are the maker, and the case of sharing the unsigned initial PSBT
+     as maker/buyer has been handled above already.  This means that now
+     we either have both PSBTs and can finalise and broadcast the
+     transaction, or we still need to wait.  */
+  CHECK_EQ (GetRole (), proto::Trade::MAKER);
+  if (!pb.has_their_psbt ())
+    return false;
+
+  std::string finalPsbt;
+  switch (GetOrderType ())
+    {
+    case proto::Order::BID:
+      /* FIXME: finalPsbt is combined from both.  */
+      break;
+    case proto::Order::ASK:
+      /* As the seller, we received the partially signed transaction
+         already and signed *that* ourselves, so our PSBT is the final one.  */
+      finalPsbt = pb.our_psbt ();
+      break;
+    default:
+      LOG (FATAL) << "Unexpected order type: " << GetOrderType ();
+    }
+
+  VLOG (1) << "Final, fully signed PSBT:\n" << finalPsbt;
+
+  /* FIXME: Convert to raw transaction and broadcast.  */
+
+  pb.set_state (proto::Trade::PENDING);
   return false;
 }
 

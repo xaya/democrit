@@ -151,6 +151,12 @@ private:
   void MergeSellerData (const proto::SellerData& sd);
 
   /**
+   * Receives the counterparty's PSBT and stores it into our trade data
+   * (if we do not yet have it).
+   */
+  void MergePsbt (const proto::TradePsbt& psbt);
+
+  /**
    * Checks if we are the seller and still need to get our addresses for
    * the seller data.  If that is the case, retrieves them and adds them to
    * our TradeState proto.

@@ -46,5 +46,11 @@
     "name": "joinpsbts",
     "params": [["psbt 1", "psbt 2"]],
     "returns": "psbt"
+  },
+
+  {
+    "name": "walletprocesspsbt",
+    "params": ["psbt"],
+    "returns": {}
   }
 ]

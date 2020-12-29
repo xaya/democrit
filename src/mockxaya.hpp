@@ -142,6 +142,18 @@ public:
                                     Amount total, const std::string& move);
 
   /**
+   * Sets up the expectations for a call to walletprocesspsbt with the
+   * given input PSBT, returning a defined PSBT identifier for the "signed"
+   * transaction.  This also sets up a decoded form for the "signed" PSBT, which
+   * marks all inputs matching the input txids given as signed.  The call to
+   * walletprocesspsbt will return "complete" if all inputs are marked
+   * as signed afterwards (based on this and previous calls to SetSignedPsbt).
+   */
+  void SetSignedPsbt (const std::string& signedPsbt,
+                      const std::string& psbt,
+                      const std::set<std::string>& signTxids);
+
+  /**
    * Returns the block hash that the mock server "has" at some height
    * (e.g. with getblockheader and its prev hashes).
    */
@@ -218,6 +230,7 @@ public:
                              const std::string& name,
                              const std::string& value));
   MOCK_METHOD1 (joinpsbts, std::string (const Json::Value& psbts));
+  MOCK_METHOD1 (walletprocesspsbt, Json::Value (const std::string& psbt));
 
 };
 
