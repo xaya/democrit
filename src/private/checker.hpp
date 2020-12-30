@@ -103,6 +103,15 @@ public:
   bool CheckForBuyerTrade (proto::OutPoint& nameInput) const;
 
   /**
+   * Compares the "unsigned" and "signed" PSBT (from the buyer's point of view)
+   * and verifies that all inputs except one have been signed.  This in
+   * particular protects against being tricked into signing everything if the
+   * seller impersonates a name in the buyer's wallet.
+   */
+  bool CheckForBuyerSignature (const std::string& beforeStr,
+                               const std::string& afterStr) const;
+
+  /**
    * Verifies that the given PSBT matches the expectations of the seller
    * before signing:  The correct total is paid to their seller-data provided
    * address, and the name is updated with the expected value to their

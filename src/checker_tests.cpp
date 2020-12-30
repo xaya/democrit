@@ -230,6 +230,80 @@ TEST_F (TradeCheckerForBuyerTests, ValidAncestorBlock)
 
 /* ************************************************************************** */
 
+class TradeCheckerForBuyerSignatureTests : public TradeCheckerTests
+{
+
+protected:
+
+  /**
+   * Calls CheckForBuyerSignature with the given before / after "inputs"
+   * fields in the decoded PSBT.
+   */
+  bool
+  Check (const std::string& inputsBefore, const std::string& inputsAfter)
+  {
+    Json::Value before(Json::objectValue);
+    before["tx"] = ParseJson ("{}");
+    before["inputs"] = ParseJson (inputsBefore);
+    env.GetXayaServer ().SetPsbt ("before", before);
+
+    Json::Value after(Json::objectValue);
+    after["tx"] = ParseJson ("{}");
+    after["inputs"] = ParseJson (inputsAfter);
+    env.GetXayaServer ().SetPsbt ("after", after);
+
+    return checker.CheckForBuyerSignature ("before", "after");
+  }
+
+};
+
+TEST_F (TradeCheckerForBuyerSignatureTests, AllInputsSigned)
+{
+  EXPECT_FALSE (Check (R"([
+    {}, {}
+  ])", R"([
+    {"final_scriptwitness": ["foo"]},
+    {"final_scriptwitness": ["bar"]}
+  ])"));
+}
+
+TEST_F (TradeCheckerForBuyerSignatureTests, TooLittleSigned)
+{
+  EXPECT_FALSE (Check (R"([
+    {}, {}, {}
+  ])", R"([
+    {},
+    {"final_scriptwitness": ["foo"]},
+    {}
+  ])"));
+}
+
+TEST_F (TradeCheckerForBuyerSignatureTests, ValidWithoutSellerSignature)
+{
+  EXPECT_TRUE (Check (R"([
+    {}, {}, {}
+  ])", R"([
+    {},
+    {"final_scriptwitness": ["foo"]},
+    {"final_scriptwitness": ["bar"]}
+  ])"));
+}
+
+TEST_F (TradeCheckerForBuyerSignatureTests, ValidWithSellerSignature)
+{
+  EXPECT_TRUE (Check (R"([
+    {},
+    {"final_scriptwitness": ["seller"]},
+    {}
+  ])", R"([
+    {"final_scriptwitness": ["foo"]},
+    {"final_scriptwitness": ["seller"]},
+    {"final_scriptwitness": ["bar"]}
+  ])"));
+}
+
+/* ************************************************************************** */
+
 class TradeCheckerForSellerOutputsTests : public TradeCheckerTests
 {
 

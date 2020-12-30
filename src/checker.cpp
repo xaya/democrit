@@ -216,6 +216,48 @@ TradeChecker::CheckForBuyerTrade (proto::OutPoint& nameInput) const
   return true;
 }
 
+bool
+TradeChecker::CheckForBuyerSignature (const std::string& beforeStr,
+                                      const std::string& afterStr) const
+{
+  const auto before = xaya->decodepsbt (beforeStr);
+  const auto after = xaya->decodepsbt (afterStr);
+
+  /* The "tx" field inside the PSBT is always unsigned, so should never
+     change at all by signing (no matter what).  */
+  CHECK_EQ (before["tx"], after["tx"]);
+
+  /* The PSBT "inputs" will change.  For the buyer, all inputs except one
+     (the name) should have been signed.  If the seller impersonates a name
+     in the buyer's wallet, it could happen that all inputs are signed, which
+     is something we want to prevent with this check.
+
+     Note that the buyer constructs the transaction, so there is not that
+     much room for the seller to trick them.  All inputs except the name are
+     added by the wallet itself, so those should be signed.  */
+
+  const auto& inputsBefore = before["inputs"];
+  CHECK (inputsBefore.isArray ());
+  const auto& inputsAfter = after["inputs"];
+  CHECK (inputsAfter.isArray ());
+  CHECK_EQ (inputsBefore.size (), inputsAfter.size ());
+
+  unsigned count = 0;
+  for (unsigned i = 0; i < inputsBefore.size (); ++i)
+    if (inputsBefore[i] != inputsAfter[i])
+      ++count;
+
+  if (count + 1 != inputsBefore.size ())
+    {
+      LOG (WARNING)
+          << count << " inputs were modified by the buyer's signature:\n"
+          << before << " vs\n" << after;
+      return false;
+    }
+
+  return true;
+}
+
 namespace
 {
 
