@@ -58,6 +58,7 @@ MockXayaRpcServer::MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
   EXPECT_CALL (*this, NamePsbt (_, _, _, _)).Times (0);
   EXPECT_CALL (*this, joinpsbts (_)).Times (0);
   EXPECT_CALL (*this, walletprocesspsbt (_)).Times (0);
+  EXPECT_CALL (*this, sendrawtransaction(_)).Times (0);
 }
 
 namespace
@@ -353,6 +354,70 @@ MockXayaRpcServer::namepsbt (const std::string& psbt, const int vout,
   Json::Value res(Json::objectValue);
   res["psbt"] = NamePsbt (psbt, vout,
                           nameVal.asString (), valueVal.asString ());
+
+  return res;
+}
+
+std::string
+MockXayaRpcServer::combinepsbt (const Json::Value& inputPsbts)
+{
+  CHECK (inputPsbts.isArray ());
+  CHECK_GT (inputPsbts.size (), 0);
+
+  Json::Value decoded = psbts.at (inputPsbts[0].asString ());
+  std::ostringstream outputName;
+  outputName << inputPsbts[0].asString ();
+
+  for (unsigned i = 1; i < inputPsbts.size (); ++i)
+    {
+      const auto& curName = inputPsbts[i].asString ();
+      outputName << " + " << curName;
+      const auto& cur = psbts.at (curName);
+
+      CHECK_EQ (decoded["tx"], cur["tx"]);
+      CHECK_EQ (decoded["outputs"], cur["outputs"]);
+
+      auto& outputInputs = decoded["inputs"];
+      CHECK (outputInputs.isArray ());
+      const auto& curInputs = cur["inputs"];
+      CHECK (curInputs.isArray ());
+      CHECK_EQ (outputInputs.size (), curInputs.size ());
+
+      for (unsigned j = 0; j < outputInputs.size (); ++j)
+        {
+          const auto& inp = curInputs[j];
+          if (inp.isMember ("signed") && inp["signed"].asBool ())
+            outputInputs[j] = inp;
+        }
+    }
+
+  SetPsbt (outputName.str (), decoded);
+  return outputName.str ();
+}
+
+Json::Value
+MockXayaRpcServer::finalizepsbt (const std::string& psbt)
+{
+  const auto& decoded = psbts.at (psbt);
+  const auto& inputs = decoded["inputs"];
+  CHECK (inputs.isArray ());
+
+  bool complete = true;
+  for (const auto& inp : inputs)
+    {
+      if (!inp.isMember ("signed") || !inp["signed"].asBool ())
+        {
+          complete = false;
+          break;
+        }
+    }
+
+  Json::Value res(Json::objectValue);
+  res["complete"] = complete;
+  if (complete)
+    res["hex"] = "rawtx " + psbt;
+  else
+    res["psbt"] = psbt;
 
   return res;
 }

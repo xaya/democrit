@@ -52,5 +52,21 @@
     "name": "walletprocesspsbt",
     "params": ["psbt"],
     "returns": {}
+  },
+
+  {
+    "name": "combinepsbt",
+    "params": [["psbts"]],
+    "returns": "psbt"
+  },
+  {
+    "name": "finalizepsbt",
+    "params": ["psbt"],
+    "returns": {}
+  },
+  {
+    "name": "sendrawtransaction",
+    "params": ["hex"],
+    "returns": "txid"
   }
 ]

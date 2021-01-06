@@ -33,6 +33,7 @@ namespace
 {
 
 using testing::ElementsAre;
+using testing::Return;
 
 DEFINE_PROTO_MATCHER (EqualsTradeState, TradeState)
 DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
@@ -964,6 +965,9 @@ TEST_F (TradeSellerTransactionTests, SellerIsMaker)
   env.GetXayaServer ().SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
   env.GetXayaServer ().SetSignedPsbt ("full", "partial", {"me txid"});
 
+  EXPECT_CALL (env.GetXayaServer (), sendrawtransaction ("rawtx full"))
+      .WillOnce (Return ("txid"));
+
   EXPECT_THAT (
       ExpectNoReplyAndGetNewState (R"(
         state: INITIATED
@@ -1070,6 +1074,10 @@ TEST_F (TradeMakerBuyerFinalisationTests, Success)
   env.GetXayaServer ().SetSignedPsbt ("other partial", "unsigned",
                                       {"other txid"});
 
+  EXPECT_CALL (env.GetXayaServer (),
+               sendrawtransaction ("rawtx other partial + my partial"))
+      .WillOnce (Return ("txid"));
+
   EXPECT_THAT (
       ExpectNoReplyAndGetNewState (R"(
         state: INITIATED
@@ -1084,7 +1092,7 @@ TEST_F (TradeMakerBuyerFinalisationTests, Success)
         counterparty: "other"
         seller_data: { name_address: "addr 1" chi_address: "addr 2" }
         our_psbt: "my partial"
-        their_psbt: "their partial"
+        their_psbt: "other partial"
       )"),
     EqualsTradeState (R"(
         state: PENDING
@@ -1099,12 +1107,47 @@ TEST_F (TradeMakerBuyerFinalisationTests, Success)
         counterparty: "other"
         seller_data: { name_address: "addr 1" chi_address: "addr 2" }
         our_psbt: "my partial"
-        their_psbt: "their partial"
+        their_psbt: "other partial"
     )"));
 }
 
-/* FIXME: Test for the situation where combinepsbt returns a non-completed
-   transaction (because their_psbt was unsigned).  */
+TEST_F (TradeMakerBuyerFinalisationTests, NotFullySigned)
+{
+  PrepareGoldTransaction ("me", "other");
+  env.GetXayaServer ().SetSignedPsbt ("my partial", "unsigned", {"buyer txid"});
+
+  EXPECT_THAT (
+      ExpectNoReplyAndGetNewState (R"(
+        state: INITIATED
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+        our_psbt: "my partial"
+        their_psbt: "unsigned"
+      )"),
+    EqualsTradeState (R"(
+        state: INITIATED
+        order:
+          {
+            account: "me"
+            asset: "gold"
+            price_sat: 10
+            type: BID
+          }
+        units: 3
+        counterparty: "other"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+        our_psbt: "my partial"
+        their_psbt: "unsigned"
+    )"));
+}
 
 /* ************************************************************************** */
 
@@ -1741,6 +1784,10 @@ TEST_F (TradeFlowTests, TakingBuyOrder)
   envSeller.GetXayaServer ()
       .SetSignedPsbt ("seller signed", "unsigned", {"seller txid"});
 
+  EXPECT_CALL (envBuyer.GetXayaServer (),
+               sendrawtransaction ("rawtx seller signed + buyer signed"))
+      .WillOnce (Return ("txid"));
+
   buyer.AddOrder (1, R"(
     asset: "gold"
     max_units: 5
@@ -1854,6 +1901,9 @@ TEST_F (TradeFlowTests, TakingSellOrder)
       srv.SetSignedPsbt ("partial", "unsigned", {"buyer txid"});
       srv.SetSignedPsbt ("signed", "partial", {"seller txid"});
     }
+
+  EXPECT_CALL (envSeller.GetXayaServer (), sendrawtransaction ("rawtx signed"))
+      .WillOnce (Return ("txid"));
 
   seller.AddOrder (1, R"(
     asset: "silver"

@@ -216,6 +216,24 @@ public:
   Json::Value namepsbt (const std::string& psbt, int vout,
                         const Json::Value& nameOp) override;
 
+  /**
+   * Combines signatures in the given PSBTs.  It expects that we have a decoded
+   * form for all of them; based on that, it will produce a combined
+   * decoded JSON (putting together "signatures" as per SetSignedPsbt)
+   * and store it as the decoded form of "psbt 1 + psbt 2 + ..." for inputs
+   * "psbt 1", "psbt 2" and so on.
+   */
+  std::string combinepsbt (const Json::Value& inputPsbts) override;
+
+  /**
+   * Tries to finalise a PSBT.  It assumes that we know the decoded form
+   * of it.  The method then checks if all "inputs" have "signed":true set;
+   * if so, it returns a fake "complete" result with the "hex" field
+   * set to "rawtx <psbt>".  If not, then it returns "complete":false
+   * and the input PSBT.
+   */
+  Json::Value finalizepsbt (const std::string& psbt) override;
+
   /* The following methods are just mocked using gmock and should be used
      with explicit call expectations.  */
   MOCK_METHOD3 (CreateFundedPsbt,
@@ -231,6 +249,7 @@ public:
                              const std::string& value));
   MOCK_METHOD1 (joinpsbts, std::string (const Json::Value& psbts));
   MOCK_METHOD1 (walletprocesspsbt, Json::Value (const std::string& psbt));
+  MOCK_METHOD1 (sendrawtransaction, std::string (const std::string& hex));
 
 };
 

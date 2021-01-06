@@ -518,20 +518,41 @@ Trade::HasReply (proto::ProcessingMessage& reply)
   switch (GetOrderType ())
     {
     case proto::Order::BID:
-      /* FIXME: finalPsbt is combined from both.  */
-      break;
+      {
+        Json::Value psbts(Json::arrayValue);
+        psbts.append (pb.their_psbt ());
+        psbts.append (pb.our_psbt ());
+        finalPsbt = tm.xayaRpc->combinepsbt (psbts);
+        break;
+      }
+
     case proto::Order::ASK:
       /* As the seller, we received the partially signed transaction
          already and signed *that* ourselves, so our PSBT is the final one.  */
       finalPsbt = pb.our_psbt ();
       break;
+
     default:
       LOG (FATAL) << "Unexpected order type: " << GetOrderType ();
     }
 
   VLOG (1) << "Final, fully signed PSBT:\n" << finalPsbt;
 
-  /* FIXME: Convert to raw transaction and broadcast.  */
+  const auto finalised = tm.xayaRpc->finalizepsbt (finalPsbt);
+  CHECK (finalised.isObject ());
+  const auto& completeVal = finalised["complete"];
+  CHECK (completeVal.isBool ());
+  if (!completeVal.asBool ())
+    {
+      LOG (WARNING) << "PSBT is not yet complete:\n" << finalPsbt;
+      return false;
+    }
+
+  const auto& hexVal = finalised["hex"];
+  CHECK (hexVal.isString ());
+
+  const std::string txid = tm.xayaRpc->sendrawtransaction (hexVal.asString ());
+  LOG (INFO) << "Broadcasted trade transaction: " << txid;
 
   pb.set_state (proto::Trade::PENDING);
   return false;
