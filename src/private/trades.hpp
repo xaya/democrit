@@ -21,6 +21,7 @@
 
 #include "assetspec.hpp"
 #include "private/checker.hpp"
+#include "private/intervaljob.hpp"
 #include "private/myorders.hpp"
 #include "private/rpcclient.hpp"
 #include "private/state.hpp"
@@ -219,6 +220,12 @@ public:
    */
   bool HasReply (proto::ProcessingMessage& reply);
 
+  /**
+   * Runs a check on this trade's current state and perhaps performs updates
+   * (like timing it out or checking success/failure against the chain).
+   */
+  void Update ();
+
 };
 
 /**
@@ -248,11 +255,15 @@ private:
    */
   RpcClient<XayaRpcClient>& xayaRpc;
 
+  /** The periodic job running trade updates.  */
+  std::unique_ptr<IntervalJob> updater;
+
   /**
-   * Process all active trades and move those that are finalised to the
+   * Processes all active trades, runs a periodic update on them (e.g. to see
+   * if they have timed out) and moves those that are finalised to the
    * trade archive instead.
    */
-  void ArchiveFinalisedTrades ();
+  void UpdateAndArchiveTrades ();
 
   /**
    * Adds a new trade, based on one of our own orders being taken by
@@ -266,10 +277,11 @@ private:
   bool OrderTaken (const proto::Order& o, const Amount units,
                    const std::string& taker);
 
-  friend class TestTradeManager;
-  friend class Trade;
-
-protected:
+  /**
+   * Sets up (or re-creates) the interval job that runs periodic trade
+   * updates based on the given interval.
+   */
+  void SetupUpdater (Trade::Clock::duration intv);
 
   /**
    * Returns the current time (based on Trade::Clock) as UNIX timestamp,
@@ -278,12 +290,25 @@ protected:
    */
   virtual int64_t GetCurrentTime () const;
 
+  /**
+   * Returns the timeout to use for trades.
+   */
+  static Trade::Clock::duration GetTradeTimeout ();
+
+  friend class TestTradeManager;
+  friend class Trade;
+
 public:
 
+  /**
+   * Constructs a new instance based on the given references.  If startUpdates
+   * is set, then an interval job is started for periodic updates of trades
+   * based on the timeout.  Unit tests disable updates and instead run them
+   * manually as needed.
+   */
   explicit TradeManager (State& s, MyOrders& mo,
-                         const AssetSpec& as, RpcClient<XayaRpcClient>& x)
-    : state(s), myOrders(mo), spec(as), xayaRpc(x)
-  {}
+                         const AssetSpec& as, RpcClient<XayaRpcClient>& x,
+                         bool startUpdates);
 
   virtual ~TradeManager () = default;
 

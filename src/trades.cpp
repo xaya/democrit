@@ -31,9 +31,17 @@ namespace democrit
 DEFINE_int32 (democrit_feerate_wo_names, 1'000,
               "Fee rate (in sat/vb) to use for the trade transaction"
               " without name input/output");
+DEFINE_int32 (democrit_trade_timeout_ms, 30'000,
+              "Milliseconds until an initiated trade will be abandoned if not"
+              " finalised with the counterparty");
+
+namespace
+{
 
 /** Value paid into name outputs (in satoshis).  */
 constexpr Amount NAME_VALUE = 1'000'000;
+
+} // anonymous namespace
 
 /* ************************************************************************** */
 
@@ -466,9 +474,10 @@ Trade::HasReply (proto::ProcessingMessage& reply)
       if (!checker->CheckForBuyerSignature (unsignedPsbt, signedPsbt))
         {
           LOG (WARNING) << "Signing PSBT as buyer provided invalid signatures";
-          /* FIXME: We want to abandon the trade here actually, so that
-             (later) any locked inputs in our wallet from ConstructTransaction
-             get unlocked correctly.  */
+          /* FIXME: Later when we lock inputs in ConstructTransaction, make
+             sure to unlock them again here, since we discard the PSBT
+             rather than tie it to this trade's state (where it would at
+             least get unlocked later on abandoning the trade).  */
           return false;
         }
 
@@ -558,18 +567,52 @@ Trade::HasReply (proto::ProcessingMessage& reply)
   return false;
 }
 
+void
+Trade::Update ()
+{
+  VLOG (1) << "Updating trade:\n" << pb.DebugString ();
+
+  /* If a trade is "initialised" for too long, we abandon it.  The processing
+     from "initialised" to "pending" should just take a few seconds normally,
+     and in particular does not depend on block confirmations.  */
+  if (pb.state () == proto::Trade::INITIATED)
+    {
+      const auto timestampNow = tm.GetCurrentTime ();
+      const auto now = Clock::time_point (std::chrono::seconds (timestampNow));
+      if (now - GetStartTime () > tm.GetTradeTimeout ())
+        {
+          LOG (INFO)
+              << "Abandoning timed-out trade with " << pb.counterparty ()
+              << ": " << GetIdentifier ();
+          pb.set_state (proto::Trade::ABANDONED);
+        }
+      return;
+    }
+}
+
 /* ************************************************************************** */
 
-void
-TradeManager::ArchiveFinalisedTrades ()
+TradeManager::TradeManager (State& s, MyOrders& mo,
+                            const AssetSpec& as, RpcClient<XayaRpcClient>& x,
+                            const bool startUpdates)
+  : state(s), myOrders(mo), spec(as), xayaRpc(x)
 {
+  if (startUpdates)
+    SetupUpdater (GetTradeTimeout ());
+}
+
+void
+TradeManager::UpdateAndArchiveTrades ()
+{
+  VLOG (1) << "Running periodic update of trades...";
   state.AccessState ([this] (proto::State& s)
     {
       google::protobuf::RepeatedPtrField<proto::TradeState> stillActive;
       unsigned archived = 0;
       for (proto::TradeState& t : *s.mutable_trades ())
         {
-          const Trade obj(*this, s.account (), t);
+          Trade obj(*this, s.account (), t);
+          obj.Update ();
           if (obj.IsFinalised ())
             {
               *s.mutable_trade_archive ()->Add () = obj.GetPublicInfo ();
@@ -599,11 +642,27 @@ TradeManager::GetTrades () const
   return res;
 }
 
+void
+TradeManager::SetupUpdater (const Trade::Clock::duration intv)
+{
+  updater = std::make_unique<IntervalJob> (intv,
+      [this] ()
+        {
+          UpdateAndArchiveTrades ();
+        });
+}
+
 int64_t
 TradeManager::GetCurrentTime () const
 {
   const auto dur = Trade::Clock::now ().time_since_epoch ();
   return std::chrono::duration_cast<std::chrono::seconds> (dur).count ();
+}
+
+Trade::Clock::duration
+TradeManager::GetTradeTimeout ()
+{
+  return std::chrono::milliseconds (FLAGS_democrit_trade_timeout_ms);
 }
 
 namespace

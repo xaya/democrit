@@ -23,11 +23,14 @@
 #include "private/state.hpp"
 #include "testutils.hpp"
 
+#include <gflags/gflags.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 namespace democrit
 {
+
+DECLARE_int32 (democrit_trade_timeout_ms);
 
 namespace
 {
@@ -75,7 +78,8 @@ public:
       MyOrders(static_cast<State&> (*this), NO_EXPIRY),
       TradeManager(static_cast<State&> (*this),
                    static_cast<MyOrders&> (*this),
-                   env.GetAssetSpec (), env.GetXayaRpc ()),
+                   env.GetAssetSpec (), env.GetXayaRpc (),
+                   false),
       mockTime(0), account(a)
   {}
 
@@ -221,8 +225,9 @@ public:
     return *t.checker;
   }
 
-  using TradeManager::ArchiveFinalisedTrades;
   using TradeManager::OrderTaken;
+  using TradeManager::SetupUpdater;
+  using TradeManager::UpdateAndArchiveTrades;
 
 };
 
@@ -315,6 +320,18 @@ protected:
     EXPECT_TRUE (t->HasReply (reply));
     EXPECT_THAT (tm.GetInternalState (*t), EqualsTradeState (stateAfter));
     return reply;
+  }
+
+  /**
+   * Runs Update() on a trade with the given state and returns the new state
+   * proto afterwards.
+   */
+  proto::TradeState
+  UpdateTrade (const std::string& state)
+  {
+    auto t = tm.GetTrade (state);
+    t->Update ();
+    return tm.GetInternalState (*t);
   }
 
 };
@@ -434,6 +451,56 @@ TEST_F (TradeStateTests, IsFinalised)
   EXPECT_TRUE (tm.GetTrade (R"(
     state: FAILED
   )")->IsFinalised ());
+}
+
+/* ************************************************************************** */
+
+class TradeUpdateTests : public TradeStateTests
+{
+
+protected:
+
+  TradeUpdateTests ()
+  {
+    /* The actual value doesn't matter here as we use mock time anyway,
+       but set it to a predictable value that does not depend on the flag
+       configuration for production.  */
+    FLAGS_democrit_trade_timeout_ms = 100'000;
+  }
+
+};
+
+TEST_F (TradeUpdateTests, TimeOutForInitiatedTrade)
+{
+  tm.SetMockTime (200);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: INITIATED
+    start_time: 100
+  )"), EqualsTradeState (R"(
+    state: INITIATED
+    start_time: 100
+  )"));
+
+  tm.SetMockTime (201);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: INITIATED
+    start_time: 100
+  )"), EqualsTradeState (R"(
+    state: ABANDONED
+    start_time: 100
+  )"));
+}
+
+TEST_F (TradeUpdateTests, NoTimeOutWhenPending)
+{
+  tm.SetMockTime (1'000);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    start_time: 10
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    start_time: 10
+  )"));
 }
 
 /* ************************************************************************** */
@@ -1539,12 +1606,17 @@ TEST_F (TradeManagerTests, ProcessMessageException)
 
 TEST_F (TradeManagerTests, Archive)
 {
+  /* We don't want to time out any of the trades here.  */
+  FLAGS_democrit_trade_timeout_ms = 100'000;
+  tm.SetMockTime (5);
+
   tm.AddTrade (R"(
     state: INITIATED
     start_time: 1
     order:
       {
         account: "me"
+        id: 10
         asset: "gold"
         price_sat: 100
         type: BID
@@ -1558,6 +1630,7 @@ TEST_F (TradeManagerTests, Archive)
     order:
       {
         account: "me"
+        id: 20
         asset: "gold"
         price_sat: 20
         type: BID
@@ -1607,8 +1680,9 @@ TEST_F (TradeManagerTests, Archive)
     counterparty: "other"
   )");
 
-  tm.ArchiveFinalisedTrades ();
+  tm.UpdateAndArchiveTrades ();
 
+  /* GetTrades returns both active and archived trades.  */
   EXPECT_THAT (tm.GetTrades (), ElementsAre (
     EqualsTrade (R"(
       state: INITIATED
@@ -1661,6 +1735,66 @@ TEST_F (TradeManagerTests, Archive)
       role: TAKER
     )")
   ));
+
+  /* Make sure to check (at least roughly) that some trades have actually been
+     archived in the underlying data.  */
+  EXPECT_NE (tm.LookupTrade ("me", 10), nullptr);
+  EXPECT_EQ (tm.LookupTrade ("me", 20), nullptr);
+}
+
+TEST_F (TradeManagerTests, RunsUpdates)
+{
+  constexpr auto INTV = std::chrono::milliseconds (50);
+
+  FLAGS_democrit_trade_timeout_ms = 10'000;
+  tm.SetMockTime (100);
+  tm.SetupUpdater (INTV);
+
+  tm.AddTrade (R"(
+    state: INITIATED
+    start_time: 100
+    order:
+      {
+        account: "me"
+        id: 10
+        asset: "gold"
+        price_sat: 100
+        type: BID
+      }
+    units: 42
+    counterparty: "other"
+  )");
+
+  std::this_thread::sleep_for (2 * INTV);
+  EXPECT_THAT (tm.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 100
+      counterparty: "other"
+      type: BID
+      asset: "gold"
+      units: 42
+      price_sat: 100
+      role: MAKER
+    )")
+  ));
+  EXPECT_NE (tm.LookupTrade ("me", 10), nullptr);
+
+  tm.SetMockTime (200);
+  std::this_thread::sleep_for (2 * INTV);
+  EXPECT_THAT (tm.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: ABANDONED
+      start_time: 100
+      counterparty: "other"
+      type: BID
+      asset: "gold"
+      units: 42
+      price_sat: 100
+      role: MAKER
+    )")
+  ));
+  EXPECT_EQ (tm.LookupTrade ("me", 10), nullptr);
 }
 
 /* ************************************************************************** */
