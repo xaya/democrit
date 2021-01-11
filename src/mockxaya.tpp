@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -25,22 +25,26 @@ namespace democrit
 
 template <typename XayaServer>
   TestEnvironment<XayaServer>::TestEnvironment ()
-  : xayaPort(GetPortForMockServer ()),
+  : xayaPort(GetPortForMockServer ()), gspPort(GetPortForMockServer ()),
     xayaHttpServer(xayaPort), xayaRpcServer(xayaHttpServer),
-    xayaClient(GetXayaEndpoint (xayaPort))
+    xayaClient(GetEndpoint (xayaPort)),
+    gspHttpServer(gspPort), gspRpcServer(gspHttpServer),
+    gspClient(GetEndpoint (gspPort))
 {
   xayaRpcServer.StartListening ();
+  gspRpcServer.StartListening ();
 }
 
 template <typename XayaServer>
   TestEnvironment<XayaServer>::~TestEnvironment ()
 {
   xayaRpcServer.StopListening ();
+  gspRpcServer.StopListening ();
 }
 
 template <typename XayaServer>
   std::string
-  TestEnvironment<XayaServer>::GetXayaEndpoint (const int port)
+  TestEnvironment<XayaServer>::GetEndpoint (const int port)
 {
   std::ostringstream res;
   res << "http://localhost:" << port;

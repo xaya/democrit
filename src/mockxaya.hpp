@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@
 
 #include "private/rpcclient.hpp"
 #include "proto/trades.pb.h"
+#include "rpc-stubs/demgsprpcclient.h"
+#include "rpc-stubs/demgsprpcserverstub.h"
 #include "rpc-stubs/xayarpcclient.h"
 #include "rpc-stubs/xayarpcserverstub.h"
 #include "testutils.hpp"
@@ -254,6 +256,52 @@ public:
 };
 
 /**
+ * Mock server for the g/dem GSP in tests.
+ */
+class MockDemGsp : public DemGspRpcServerStub
+{
+
+private:
+
+  /** Current block height returned with RPC calls.  */
+  unsigned currentHeight = 0;
+
+  /**
+   * JSON data associated to given btxid's.  If a btxid is not contained
+   * here, it will be returned as state "unknown" instead.
+   */
+  std::map<std::string, Json::Value> btxids;
+
+public:
+
+  explicit MockDemGsp (jsonrpc::AbstractServerConnector& conn)
+    : DemGspRpcServerStub(conn)
+  {}
+
+  /**
+   * Sets the block height to be returned as "current".
+   */
+  void
+  SetCurrentHeight (const unsigned h)
+  {
+    currentHeight = h;
+  }
+
+  /**
+   * Marks a given btxid as "pending".
+   */
+  void SetPending (const std::string& btxid);
+
+  /**
+   * Marks a given btxid as confirmed at the given height.
+   */
+  void SetConfirmed (const std::string& btxid, unsigned h);
+
+  Json::Value checktrade (const std::string& btxid) override;
+
+};
+
+/**
  * Test environment with a mock Xaya RPC server (that can be parametrised
  * using the template parameter).  It starts a real HTTP server with the
  * mock RPC as backend, and sets up an RPC client that tests can use.
@@ -270,6 +318,9 @@ private:
   /** Port for the Xaya RPC server.  */
   const int xayaPort;
 
+  /** Port for the g/dem GSP.  */
+  const int gspPort;
+
   /** HTTP server used for the test.  */
   jsonrpc::HttpServer xayaHttpServer;
 
@@ -279,10 +330,19 @@ private:
   /** The RPC client connected to our mock Xaya server.  */
   RpcClient<XayaRpcClient> xayaClient;
 
+  /** HTTP server used for the fake g/dem GSP.  */
+  jsonrpc::HttpServer gspHttpServer;
+
+  /** The mocked g/dem GSP server.  */
+  MockDemGsp gspRpcServer;
+
+  /** The RPC client connected to the mock GSP.  */
+  RpcClient<DemGspRpcClient> gspClient;
+
   /**
-   * Returns the HTTP endpoint for the Xaya test server at the given port.
+   * Returns the HTTP endpoint for the test server at the given port.
    */
-  static std::string GetXayaEndpoint (int port);
+  static std::string GetEndpoint (int port);
 
 public:
 
@@ -305,6 +365,24 @@ public:
   GetXayaRpc ()
   {
     return xayaClient;
+  }
+
+  /**
+   * Exposes the mock g/dem GSP server for controlling it.
+   */
+  MockDemGsp&
+  GetGspServer ()
+  {
+    return gspRpcServer;
+  }
+
+  /**
+   * Exposes the GSP RPC client for tests.
+   */
+  RpcClient<DemGspRpcClient>&
+  GetGspRpc ()
+  {
+    return gspClient;
   }
 
   /**

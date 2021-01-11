@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "proto/orders.pb.h"
 #include "proto/processing.pb.h"
 #include "proto/trades.pb.h"
+#include "rpc-stubs/demgsprpcclient.h"
 #include "rpc-stubs/xayarpcclient.h"
 
 #include <chrono>
@@ -255,6 +256,9 @@ private:
    */
   RpcClient<XayaRpcClient>& xayaRpc;
 
+  /** RPC client for the g/dem GSP.  */
+  RpcClient<DemGspRpcClient>& demGsp;
+
   /** The periodic job running trade updates.  */
   std::unique_ptr<IntervalJob> updater;
 
@@ -306,8 +310,9 @@ public:
    * based on the timeout.  Unit tests disable updates and instead run them
    * manually as needed.
    */
-  explicit TradeManager (State& s, MyOrders& mo,
-                         const AssetSpec& as, RpcClient<XayaRpcClient>& x,
+  explicit TradeManager (State& s, MyOrders& mo, const AssetSpec& as,
+                         RpcClient<XayaRpcClient>& x,
+                         RpcClient<DemGspRpcClient>& d,
                          bool startUpdates);
 
   virtual ~TradeManager () = default;

@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -44,6 +44,8 @@ GetPortForMockServer ()
 
   return 2'000 + (cnt % 1'000);
 }
+
+/* ************************************************************************** */
 
 MockXayaRpcServer::MockXayaRpcServer (jsonrpc::AbstractServerConnector& conn)
   : XayaRpcServerStub(conn)
@@ -421,5 +423,44 @@ MockXayaRpcServer::finalizepsbt (const std::string& psbt)
 
   return res;
 }
+
+/* ************************************************************************** */
+
+void
+MockDemGsp::SetPending (const std::string& btxid)
+{
+  btxids[btxid] = ParseJson (R"({
+    "state": "pending"
+  })");
+}
+
+void
+MockDemGsp::SetConfirmed (const std::string& btxid, const unsigned h)
+{
+  auto data = ParseJson (R"({
+    "state": "confirmed"
+  })");
+  data["height"] = static_cast<Json::Int> (h);
+  btxids[btxid] = data;
+}
+
+Json::Value
+MockDemGsp::checktrade (const std::string& btxid)
+{
+  Json::Value res(Json::objectValue);
+  res["height"] = static_cast<Json::Int> (currentHeight);
+
+  const auto mit = btxids.find (btxid);
+  if (mit != btxids.end ())
+    res["data"] = mit->second;
+  else
+    res["data"] = ParseJson (R"({
+      "state": "unknown"
+    })");
+
+  return res;
+}
+
+/* ************************************************************************** */
 
 } // namespace democrit

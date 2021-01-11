@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@
 namespace democrit
 {
 
+DECLARE_int32 (democrit_confirmations);
 DECLARE_int32 (democrit_trade_timeout_ms);
 
 namespace
@@ -78,7 +79,7 @@ public:
       MyOrders(static_cast<State&> (*this), NO_EXPIRY),
       TradeManager(static_cast<State&> (*this),
                    static_cast<MyOrders&> (*this),
-                   env.GetAssetSpec (), env.GetXayaRpc (),
+                   env.GetAssetSpec (), env.GetXayaRpc (), env.GetGspRpc (),
                    false),
       mockTime(0), account(a)
   {}
@@ -466,6 +467,16 @@ protected:
        but set it to a predictable value that does not depend on the flag
        configuration for production.  */
     FLAGS_democrit_trade_timeout_ms = 100'000;
+    FLAGS_democrit_confirmations = 10;
+
+    /* Set up a trade PSBT that we can use in the various tests for marking
+       success or failure.  */
+    env.GetXayaServer ().SetPsbt ("psbt", ParseJson (R"({
+      "tx":
+        {
+          "btxid": "id"
+        }
+    })"));
   }
 
 };
@@ -494,12 +505,47 @@ TEST_F (TradeUpdateTests, TimeOutForInitiatedTrade)
 TEST_F (TradeUpdateTests, NoTimeOutWhenPending)
 {
   tm.SetMockTime (1'000);
+  env.GetGspServer ().SetPending ("id");
+
   EXPECT_THAT (UpdateTrade (R"(
     state: PENDING
     start_time: 10
+    our_psbt: "psbt"
   )"), EqualsTradeState (R"(
     state: PENDING
     start_time: 10
+    our_psbt: "psbt"
+  )"));
+}
+
+TEST_F (TradeUpdateTests, MarkedSuccess)
+{
+  env.GetGspServer ().SetPending ("id");
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"));
+
+  env.GetGspServer ().SetCurrentHeight (109);
+  env.GetGspServer ().SetConfirmed ("id", 101);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"));
+
+  env.GetGspServer ().SetCurrentHeight (110);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"), EqualsTradeState (R"(
+    state: SUCCESS
+    our_psbt: "psbt"
   )"));
 }
 
@@ -1609,6 +1655,15 @@ TEST_F (TradeManagerTests, Archive)
   /* We don't want to time out any of the trades here.  */
   FLAGS_democrit_trade_timeout_ms = 100'000;
   tm.SetMockTime (5);
+
+  /* Make sure the pending transaction is left alone by the update.  */
+  env.GetXayaServer ().SetPsbt ("signed", ParseJson (R"({
+    "tx":
+      {
+        "btxid": "id"
+      }
+  })"));
+  env.GetGspServer ().SetPending ("id");
 
   tm.AddTrade (R"(
     state: INITIATED

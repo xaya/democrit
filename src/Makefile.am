@@ -13,12 +13,15 @@ PROTOSOURCES = $(PROTOS:.proto=.pb.cc)
 
 EXTRA_DIST = \
   rpc-stubs/daemon.json \
+  rpc-stubs/dem-gsp.json \
   rpc-stubs/test.json \
   rpc-stubs/xaya.json \
   $(PROTOS)
 
 RPC_STUBS = \
   rpc-stubs/daemonrpcserverstub.h \
+  rpc-stubs/demgsprpcclient.h \
+  rpc-stubs/demgsprpcserverstub.h \
   rpc-stubs/testrpcclient.h \
   rpc-stubs/testrpcserverstub.h \
   rpc-stubs/xayarpcclient.h \
@@ -102,6 +105,11 @@ proto/%.pb.h proto/%.pb.cc: $(srcdir)/proto/%.proto
 
 rpc-stubs/daemonrpcserverstub.h: $(srcdir)/rpc-stubs/daemon.json
 	jsonrpcstub "$<" --cpp-server=DaemonRpcServerStub --cpp-server-file="$@"
+
+rpc-stubs/demgsprpcclient.h: $(srcdir)/rpc-stubs/dem-gsp.json
+	jsonrpcstub "$<" --cpp-client=DemGspRpcClient --cpp-client-file="$@"
+rpc-stubs/demgsprpcserverstub.h: $(srcdir)/rpc-stubs/dem-gsp.json
+	jsonrpcstub "$<" --cpp-server=DemGspRpcServerStub --cpp-server-file="$@"
 
 rpc-stubs/testrpcclient.h: $(srcdir)/rpc-stubs/test.json
 	jsonrpcstub "$<" --cpp-client=TestRpcClient --cpp-client-file="$@"

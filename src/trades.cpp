@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@
 namespace democrit
 {
 
+DEFINE_int32 (democrit_confirmations, 6,
+              "Block confirmations until a trade is finalised");
 DEFINE_int32 (democrit_feerate_wo_names, 1'000,
               "Fee rate (in sat/vb) to use for the trade transaction"
               " without name input/output");
@@ -588,14 +590,68 @@ Trade::Update ()
         }
       return;
     }
+
+  /* If the trade is pending, we check it against the blockchain to determine
+     if it has been confirmed or failed yet.  We ignore any other state.  */
+  if (pb.state () != proto::Trade::PENDING)
+    return;
+
+  /* First, check the state of this trade's btxid in the g/dem GSP.  If it is
+     confirmed with a sufficiently low height (compared to the current block
+     height), then we mark the trade as succeeded.  */
+  CHECK (pb.has_our_psbt ());
+  const auto decoded = tm.xayaRpc->decodepsbt (pb.our_psbt ());
+  CHECK (decoded.isObject ());
+  const auto& tx = decoded["tx"];
+  CHECK (tx.isObject ());
+  const auto& btxidVal = tx["btxid"];
+  CHECK (btxidVal.isString ());
+  const std::string btxid = btxidVal.asString ();
+
+  const auto check = tm.demGsp->checktrade (btxid);
+  CHECK (check.isObject ());
+  const auto& dataVal = check["data"];
+  CHECK (dataVal.isObject ());
+  const auto& stateVal = dataVal["state"];
+  CHECK (stateVal.isString ());
+
+  if (stateVal.asString () == "confirmed")
+    {
+      const auto& confHeightVal = dataVal["height"];
+      const auto& curHeightVal = check["height"];
+      CHECK (confHeightVal.isUInt () && curHeightVal.isUInt ());
+      const uint64_t confHeight = confHeightVal.asUInt ();
+      const uint64_t curHeight = curHeightVal.asUInt ();
+      CHECK (confHeight <= curHeight);
+      if (confHeight + FLAGS_democrit_confirmations <= curHeight + 1)
+        {
+          LOG (INFO) << "Trade with btxid " << btxid << " is confirmed now";
+          pb.set_state (proto::Trade::SUCCESS);
+          return;
+        }
+    }
+
+  /* If the trade is confirmed or even just pending, we know it hasn't been
+     double spent, even if we do not yet consider it final.  */
+  if (stateVal.asString () != "unknown")
+    {
+      VLOG (1)
+          << "Trade with btxid " << btxid << " is still confirming:\n" << check;
+      return;
+    }
+
+  /* FIXME: Check for availability of all inputs in the UTXO set to check
+     for double spends.  */
 }
 
 /* ************************************************************************** */
 
-TradeManager::TradeManager (State& s, MyOrders& mo,
-                            const AssetSpec& as, RpcClient<XayaRpcClient>& x,
+TradeManager::TradeManager (State& s, MyOrders& mo, const AssetSpec& as,
+                            RpcClient<XayaRpcClient>& x,
+                            RpcClient<DemGspRpcClient>& d,
                             const bool startUpdates)
-  : state(s), myOrders(mo), spec(as), xayaRpc(x)
+  : state(s), myOrders(mo), spec(as),
+    xayaRpc(x), demGsp(d)
 {
   if (startUpdates)
     SetupUpdater (GetTradeTimeout ());
