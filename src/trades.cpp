@@ -573,6 +573,7 @@ void
 Trade::Update ()
 {
   VLOG (1) << "Updating trade:\n" << pb.DebugString ();
+  CHECK (isMutable) << "Trade instance is not mutable";
 
   /* If a trade is "initialised" for too long, we abandon it.  The processing
      from "initialised" to "pending" should just take a few seconds normally,
@@ -610,6 +611,9 @@ Trade::Update ()
 
   const auto check = tm.demGsp->checktrade (btxid);
   CHECK (check.isObject ());
+  const auto& curHeightVal = check["height"];
+  CHECK (curHeightVal.isUInt ());
+  const uint64_t curHeight = curHeightVal.asUInt ();
   const auto& dataVal = check["data"];
   CHECK (dataVal.isObject ());
   const auto& stateVal = dataVal["state"];
@@ -618,10 +622,8 @@ Trade::Update ()
   if (stateVal.asString () == "confirmed")
     {
       const auto& confHeightVal = dataVal["height"];
-      const auto& curHeightVal = check["height"];
-      CHECK (confHeightVal.isUInt () && curHeightVal.isUInt ());
+      CHECK (confHeightVal.isUInt ());
       const uint64_t confHeight = confHeightVal.asUInt ();
-      const uint64_t curHeight = curHeightVal.asUInt ();
       CHECK (confHeight <= curHeight);
       if (confHeight + FLAGS_democrit_confirmations <= curHeight + 1)
         {
@@ -637,11 +639,63 @@ Trade::Update ()
     {
       VLOG (1)
           << "Trade with btxid " << btxid << " is still confirming:\n" << check;
+      /* Currently, the trade is not conflicted.  If it was before and then
+         e.g. a reorg happened, unset the conflicted height.  */
+      pb.clear_conflict_height ();
       return;
     }
 
-  /* FIXME: Check for availability of all inputs in the UTXO set to check
-     for double spends.  */
+  /* If one of the trade's inputs is not available, the trade is conflicted.
+     The first time this happens, we remember the block height.  If we then
+     advance beyond the required confirmations, we mark it as failed.  */
+  const auto& vin = tx["vin"];
+  CHECK (vin.isArray ());
+  bool conflicted = false;
+  for (const auto& in : vin)
+    {
+      CHECK (in.isObject ());
+      const auto& hashVal = in["txid"];
+      CHECK (hashVal.isString ());
+      const auto& nVal = in["vout"];
+      CHECK (nVal.isUInt ());
+
+      /* gettxout can return JSON objects and JSON null, which does not work
+         well with the libjson-rpc-cpp generated code.  */
+      Json::Value params(Json::arrayValue);
+      params.append (hashVal.asString ());
+      params.append (nVal.asUInt ());
+      const auto utxoData = tm.xayaRpc->CallMethod ("gettxout", params);
+
+      if (utxoData.isNull ())
+        {
+          VLOG (1)
+              << "For trade with btxid " << btxid
+              << ", the input " << hashVal << ":" << nVal
+              << " has been double spent";
+          conflicted = true;
+          break;
+        }
+    }
+  if (!conflicted)
+    {
+      pb.clear_conflict_height ();
+      return;
+    }
+
+  if (!pb.has_conflict_height ())
+    {
+      LOG (INFO)
+          << "Trade with btxid " << btxid
+          << " is conflicted at height " << curHeight;
+      pb.set_conflict_height (curHeight);
+      return;
+    }
+
+  if (pb.conflict_height () + FLAGS_democrit_confirmations <= curHeight + 1)
+    {
+      LOG (INFO) << "Trade with btxid " << btxid << " is confirmed failed";
+      pb.set_state (proto::Trade::FAILED);
+    }
 }
 
 /* ************************************************************************** */

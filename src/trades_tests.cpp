@@ -474,7 +474,12 @@ protected:
     env.GetXayaServer ().SetPsbt ("psbt", ParseJson (R"({
       "tx":
         {
-          "btxid": "id"
+          "btxid": "id",
+          "vin":
+            [
+              {"txid": "name in", "vout": 12},
+              {"txid": "coin in", "vout": 1}
+            ]
         }
     })"));
   }
@@ -546,6 +551,71 @@ TEST_F (TradeUpdateTests, MarkedSuccess)
   )"), EqualsTradeState (R"(
     state: SUCCESS
     our_psbt: "psbt"
+  )"));
+}
+
+TEST_F (TradeUpdateTests, NotDoubleSpent)
+{
+  env.GetXayaServer ().AddUtxo ("name in", 12);
+  env.GetXayaServer ().AddUtxo ("coin in", 1);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 10
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"));
+}
+
+TEST_F (TradeUpdateTests, NotConflictedIfPending)
+{
+  env.GetGspServer ().SetPending ("id");
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 10
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"));
+}
+
+TEST_F (TradeUpdateTests, MarkedFailed)
+{
+  /* One UTXO is there, the other has been double spent.  */
+  env.GetXayaServer ().AddUtxo ("coin in", 1);
+  env.GetGspServer ().SetCurrentHeight (101);
+
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 101
+  )"));
+
+  env.GetGspServer ().SetCurrentHeight (109);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 101
+  )"), EqualsTradeState (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 101
+  )"));
+
+  env.GetGspServer ().SetCurrentHeight (110);
+  EXPECT_THAT (UpdateTrade (R"(
+    state: PENDING
+    our_psbt: "psbt"
+    conflict_height: 101
+  )"), EqualsTradeState (R"(
+    state: FAILED
+    our_psbt: "psbt"
+    conflict_height: 101
   )"));
 }
 

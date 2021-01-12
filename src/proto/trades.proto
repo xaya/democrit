@@ -236,4 +236,13 @@ message TradeState
    */
   optional string their_psbt = 8;
 
+  /**
+   * We notice that a trade has failed when one of its inputs is no longer
+   * available (but it also has not yet been marked as confirmed).  There is
+   * no easy way to check when that input was double-spent; instead, we remember
+   * the block height when we first noticed this here, so that we then know
+   * when we are enough blocks past the point.
+   */
+  optional uint64 conflict_height = 9;
+
 }
