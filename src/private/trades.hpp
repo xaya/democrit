@@ -227,6 +227,19 @@ public:
    */
   void Update ();
 
+  /**
+   * Does processing on external state (like wallet locks or myorders)
+   * for a trade that has been marked success.  This is called by TradeManager
+   * without the global state lock.
+   */
+  void HandleSuccess () const;
+
+  /**
+   * Does processing on external state for a trade that failed or got
+   * abandoned, similarly to HandleSuccess.
+   */
+  void HandleFailure () const;
+
 };
 
 /**

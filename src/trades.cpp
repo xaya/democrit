@@ -698,6 +698,41 @@ Trade::Update ()
     }
 }
 
+void
+Trade::HandleSuccess () const
+{
+  if (GetRole () == proto::Trade::MAKER)
+    {
+      VLOG (1)
+          << "Trade against our order " << pb.order ().id ()
+          << " succeeded, deleting original order";
+      tm.myOrders.RemoveById (pb.order ().id ());
+
+      auto newOrder = pb.order ();
+      newOrder.clear_id ();
+      newOrder.set_max_units (pb.order ().max_units () - pb.units ());
+
+      if (newOrder.max_units () > 0
+            && newOrder.max_units () >= newOrder.min_units ())
+        {
+          VLOG (1) << "Recreating reduced order:\n" << newOrder.DebugString ();
+          tm.myOrders.Add (std::move (newOrder));
+        }
+    }
+}
+
+void
+Trade::HandleFailure () const
+{
+  if (GetRole () == proto::Trade::MAKER)
+    {
+      VLOG (1)
+          << "Releasing our order with ID " << pb.order ().id ()
+          << " after trade failure";
+      tm.myOrders.Unlock (pb.order ().id ());
+    }
+}
+
 /* ************************************************************************** */
 
 TradeManager::TradeManager (State& s, MyOrders& mo, const AssetSpec& as,
@@ -715,26 +750,55 @@ void
 TradeManager::UpdateAndArchiveTrades ()
 {
   VLOG (1) << "Running periodic update of trades...";
-  state.AccessState ([this] (proto::State& s)
+
+  std::string account;
+  std::vector<proto::TradeState> finalised;
+  state.AccessState ([&] (proto::State& s)
     {
+      account = s.account ();
+
       google::protobuf::RepeatedPtrField<proto::TradeState> stillActive;
-      unsigned archived = 0;
       for (proto::TradeState& t : *s.mutable_trades ())
         {
-          Trade obj(*this, s.account (), t);
+          Trade obj(*this, account, t);
           obj.Update ();
           if (obj.IsFinalised ())
             {
               *s.mutable_trade_archive ()->Add () = obj.GetPublicInfo ();
-              ++archived;
+              finalised.emplace_back (std::move (t));
             }
           else
             *stillActive.Add () = std::move (t);
         }
+
       s.mutable_trades ()->Swap (&stillActive);
-      LOG_IF (INFO, archived > 0)
-          << "Archived " << archived << " finalised trades";
     });
+
+  /* If trades got finalised, we need to do some further processing on them,
+     e.g. to release locked inputs or to restore the order if we are the maker
+     and the trade failed.  */
+  for (const auto& t : finalised)
+    {
+      const Trade obj(*this, account, t);
+      switch (t.state ())
+        {
+        case proto::Trade::ABANDONED:
+        case proto::Trade::FAILED:
+          obj.HandleFailure ();
+          break;
+        case proto::Trade::SUCCESS:
+          obj.HandleSuccess ();
+          break;
+        default:
+          /* Any other state should not have been finalised!  */
+          LOG (FATAL)
+              << "Trade with state " << static_cast<int> (t.state ())
+              << " has been archived";
+        }
+    }
+
+  LOG_IF (INFO, !finalised.empty ())
+      << "Archived " << finalised.size () << " finalised trades";
 }
 
 std::vector<proto::Trade>

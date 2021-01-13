@@ -114,13 +114,21 @@ public:
    * Adds a new Trade to the internal state, based on the given proto data.
    */
   void
-  AddTrade (const std::string& data)
+  AddTrade (const proto::TradeState& pb)
   {
-    auto pb = ParseTextProto<proto::TradeState> (data);
     AccessState ([&pb] (proto::State& s)
       {
         *s.mutable_trades ()->Add () = std::move (pb);
       });
+  }
+
+  /**
+   * Adds a new Trade to the internal state based on text data.
+   */
+  void
+  AddTrade (const std::string& data)
+  {
+    AddTrade (ParseTextProto<proto::TradeState> (data));
   }
 
   /**
@@ -155,13 +163,24 @@ public:
    * is set to the desired value.
    */
   void
-  AddOrder (const uint64_t id, const std::string& data)
+  AddOrder (const uint64_t id, const proto::Order& o)
   {
     AccessState ([id] (proto::State& s)
       {
         s.set_next_free_id (id);
       });
-    CHECK (MyOrders::Add (ParseTextProto<proto::Order> (data)));
+
+    auto copy = o;
+    CHECK (MyOrders::Add (std::move (copy)));
+  }
+
+  /**
+   * Adds a new order based on a text proto.
+   */
+  void
+  AddOrder (const uint64_t id, const std::string& data)
+  {
+    AddOrder (id, ParseTextProto<proto::Order> (data));
   }
 
   /**
@@ -1754,11 +1773,11 @@ TEST_F (TradeManagerTests, Archive)
     start_time: 2
     order:
       {
-        account: "me"
+        account: "other"
         id: 20
         asset: "gold"
         price_sat: 20
-        type: BID
+        type: ASK
       }
     units: 100
     counterparty: "other"
@@ -1837,7 +1856,7 @@ TEST_F (TradeManagerTests, Archive)
       asset: "gold"
       units: 100
       price_sat: 20
-      role: MAKER
+      role: TAKER
     )"),
     EqualsTrade (R"(
       state: SUCCESS
@@ -1864,7 +1883,7 @@ TEST_F (TradeManagerTests, Archive)
   /* Make sure to check (at least roughly) that some trades have actually been
      archived in the underlying data.  */
   EXPECT_NE (tm.LookupTrade ("me", 10), nullptr);
-  EXPECT_EQ (tm.LookupTrade ("me", 20), nullptr);
+  EXPECT_EQ (tm.LookupTrade ("other", 20), nullptr);
 }
 
 TEST_F (TradeManagerTests, RunsUpdates)
@@ -1880,11 +1899,11 @@ TEST_F (TradeManagerTests, RunsUpdates)
     start_time: 100
     order:
       {
-        account: "me"
+        account: "other"
         id: 10
         asset: "gold"
         price_sat: 100
-        type: BID
+        type: ASK
       }
     units: 42
     counterparty: "other"
@@ -1900,10 +1919,10 @@ TEST_F (TradeManagerTests, RunsUpdates)
       asset: "gold"
       units: 42
       price_sat: 100
-      role: MAKER
+      role: TAKER
     )")
   ));
-  EXPECT_NE (tm.LookupTrade ("me", 10), nullptr);
+  EXPECT_NE (tm.LookupTrade ("other", 10), nullptr);
 
   tm.SetMockTime (200);
   std::this_thread::sleep_for (2 * INTV);
@@ -1916,10 +1935,120 @@ TEST_F (TradeManagerTests, RunsUpdates)
       asset: "gold"
       units: 42
       price_sat: 100
-      role: MAKER
+      role: TAKER
     )")
   ));
-  EXPECT_EQ (tm.LookupTrade ("me", 10), nullptr);
+  EXPECT_EQ (tm.LookupTrade ("other", 10), nullptr);
+}
+
+TEST_F (TradeManagerTests, UnlocksFailedOrder)
+{
+  tm.AddOrder (1, R"(
+    asset: "gold"
+    max_units: 5
+    price_sat: 10
+    type: BID
+    locked: true
+  )");
+  tm.AddTrade (R"(
+    state: ABANDONED
+    order:
+      {
+        account: "me"
+        id: 1
+      }
+    units: 1
+    counterparty: "other"
+  )");
+
+  tm.UpdateAndArchiveTrades ();
+  EXPECT_EQ (tm.LookupTrade ("me", 1), nullptr);
+
+  EXPECT_THAT (tm.GetOrders (), EqualsOrdersOfAccount (R"(
+    account: "me"
+    orders:
+      {
+        key: 1
+        value:
+          {
+            asset: "gold"
+            max_units: 5
+            price_sat: 10
+            type: BID
+          }
+      }
+  )"));
+}
+
+TEST_F (TradeManagerTests, PartialOrderRestorationAfterSuccess)
+{
+  struct Test
+  {
+    Amount min_units;
+    Amount max_before;
+    Amount units;
+    Amount max_after;
+  };
+  const Test tests[] =
+    {
+      {3, 5, 2, 3},
+      {3, 5, 3, 0},
+      {0, 5, 5, 0},
+      {0, 5, 4, 1},
+    };
+
+  for (const auto& t : tests)
+    {
+      tm.RemoveById (1);
+      tm.RemoveById (2);
+
+      auto o = ParseTextProto<proto::Order> (R"(
+        asset: "gold"
+        price_sat: 10
+        type: BID
+        locked: true
+      )");
+      if (t.min_units > 0)
+        o.set_min_units (t.min_units);
+      o.set_max_units (t.max_before);
+      tm.AddOrder (1, o);
+
+      auto ts = ParseTextProto<proto::TradeState> (R"(
+        state: SUCCESS
+        order:
+          {
+            account: "me"
+            id: 1
+          }
+        counterparty: "other"
+      )");
+      ts.set_units (t.units);
+      ts.mutable_order ()->MergeFrom (o);
+      ts.mutable_order ()->clear_locked ();
+      tm.AddTrade (ts);
+
+      tm.UpdateAndArchiveTrades ();
+      EXPECT_EQ (tm.LookupTrade ("me", 1), nullptr);
+
+      const auto orders = tm.GetOrders ().orders ();
+      if (t.max_after == 0)
+        {
+          ASSERT_EQ (orders.size (), 0);
+          continue;
+        }
+
+      ASSERT_EQ (orders.size (), 1);
+      const auto& actual = orders.at (2);
+      EXPECT_EQ (actual.asset (), "gold");
+      if (t.min_units == 0)
+        EXPECT_FALSE (actual.has_min_units ());
+      else
+        EXPECT_EQ (actual.min_units (), t.min_units);
+      EXPECT_EQ (actual.max_units (), t.max_after);
+      EXPECT_EQ (actual.price_sat (), 10);
+      EXPECT_EQ (actual.type (), proto::Order::BID);
+      EXPECT_FALSE (actual.has_locked ());
+    }
 }
 
 /* ************************************************************************** */
