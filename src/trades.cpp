@@ -43,6 +43,53 @@ namespace
 /** Value paid into name outputs (in satoshis).  */
 constexpr Amount NAME_VALUE = 1'000'000;
 
+/**
+ * Tries to lock or unlock an unspent output in the Xaya Wallet.  Returns
+ * true on success and false on failure.
+ */
+bool
+LockUnspent (RpcClient<XayaRpcClient>& rpc, const bool lock,
+             const proto::OutPoint& out)
+{
+  /* The lockunspent RPC method always returns either true or throws on
+     failure, which we want to catch and translate to a return value here.  */
+  try
+    {
+      Json::Value jsonOut(Json::objectValue);
+      jsonOut["txid"] = out.hash ();
+      jsonOut["vout"] = static_cast<Json::Int> (out.n ());
+
+      Json::Value outputs(Json::arrayValue);
+      outputs.append (jsonOut);
+
+      return rpc->lockunspent (!lock, outputs);
+    }
+  catch (const jsonrpc::JsonRpcException& exc)
+    {
+      VLOG (1) << "Error in lockunspent: " << exc.what ();
+      return false;
+    }
+}
+
+/**
+ * Unlocks all inputs in the given PSBT.
+ */
+void
+UnlockPsbtInputs (RpcClient<XayaRpcClient>& rpc, const std::string& psbt)
+{
+  const auto decoded = rpc->decodepsbt (psbt);
+  CHECK (decoded.isObject ());
+  const auto& tx = decoded["tx"];
+  CHECK (tx.isObject ());
+  const auto& vin = tx["vin"];
+  CHECK (vin.isArray ());
+
+  /* Note that not all inputs will be ours (at least the name input won't),
+     but that is fine as LockUnspent gracefully handles unlock-errors.  */
+  for (const auto& in : vin)
+    LockUnspent (rpc, false, OutPointFromJson (in));
+}
+
 } // anonymous namespace
 
 /* ************************************************************************** */
@@ -255,9 +302,16 @@ Trade::CreateSellerData ()
     return false;
 
   proto::SellerData sd;
+  *sd.mutable_name_output () = GetNameOutPoint (tm.xayaRpc, account);
+
+  if (!LockUnspent (tm.xayaRpc, true, sd.name_output ()))
+    {
+      LOG (WARNING) << "Failed to lock name output for " << account;
+      return false;
+    }
+
   sd.set_name_address (tm.xayaRpc->getnewaddress ());
   sd.set_chi_address (tm.xayaRpc->getnewaddress ());
-  *sd.mutable_name_output () = GetNameOutpoint (tm.xayaRpc, account);
 
   *pb.mutable_seller_data () = std::move (sd);
   return true;
@@ -292,6 +346,7 @@ Trade::ConstructTransaction (const TradeChecker& checker,
 
     Json::Value options(Json::objectValue);
     options["fee_rate"] = FLAGS_democrit_feerate_wo_names;
+    options["lockUnspents"] = true;
 
     const auto resp = tm.xayaRpc->walletcreatefundedpsbt (
         Json::Value (Json::arrayValue), outputs, 0, options);
@@ -476,10 +531,10 @@ Trade::HasReply (proto::ProcessingMessage& reply)
       if (!checker->CheckForBuyerSignature (unsignedPsbt, signedPsbt))
         {
           LOG (WARNING) << "Signing PSBT as buyer provided invalid signatures";
-          /* FIXME: Later when we lock inputs in ConstructTransaction, make
-             sure to unlock them again here, since we discard the PSBT
-             rather than tie it to this trade's state (where it would at
-             least get unlocked later on abandoning the trade).  */
+          /* ConstructTransaction locked the inputs in our wallet, but we
+             are now discarding this transaction.  Make sure to unlock the
+             inputs again.  */
+          UnlockPsbtInputs (tm.xayaRpc, signedPsbt);
           return false;
         }
 
@@ -730,6 +785,20 @@ Trade::HandleFailure () const
           << "Releasing our order with ID " << pb.order ().id ()
           << " after trade failure";
       tm.myOrders.Unlock (pb.order ().id ());
+    }
+
+  if (pb.seller_data ().has_name_output ())
+    {
+      VLOG (1)
+          << "Unlocking name output for failed sale: "
+          << pb.seller_data ().name_output ().DebugString ();
+      LockUnspent (tm.xayaRpc, false, pb.seller_data ().name_output ());
+    }
+
+  if (GetOrderType () == proto::Order::BID && pb.has_our_psbt ())
+    {
+      VLOG (1) << "Unlocking inputs for failed sale:\n" << pb.our_psbt ();
+      UnlockPsbtInputs (tm.xayaRpc, pb.our_psbt ());
     }
 }
 

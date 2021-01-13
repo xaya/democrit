@@ -21,8 +21,6 @@
 #include <xayautil/jsonutils.hpp>
 #include <xayautil/uint256.hpp>
 
-#include <json/json.h>
-
 #include <glog/logging.h>
 
 namespace democrit
@@ -52,21 +50,26 @@ GetXayaName (const std::string& account)
 } // anonymous namespace
 
 proto::OutPoint
-GetNameOutpoint (RpcClient<XayaRpcClient>& rpc, const std::string& account)
+OutPointFromJson (const Json::Value& val)
 {
-  const auto name = rpc->name_show (GetXayaName (account));
-  CHECK (name.isObject ()) << "Invalid name_show result: " << name;
+  CHECK (val.isObject ()) << "Invalid JSON outpoint: " << val;
 
-  const auto outTxid = name["txid"];
-  const auto outVout = name["vout"];
+  const auto outTxid = val["txid"];
+  const auto outVout = val["vout"];
   CHECK (outTxid.isString () && outVout.isUInt ())
-      << "Invalid name_show result: " << name;
+      << "Invalid JSON outpoint: " << val;
 
   proto::OutPoint res;
   res.set_hash (outTxid.asString ());
   res.set_n (outVout.asUInt ());
 
   return res;
+}
+
+proto::OutPoint
+GetNameOutPoint (RpcClient<XayaRpcClient>& rpc, const std::string& account)
+{
+  return OutPointFromJson (rpc->name_show (GetXayaName (account)));
 }
 
 std::string
@@ -184,7 +187,7 @@ TradeChecker::CheckForBuyerTrade (proto::OutPoint& nameInput) const
      will most likely actually be identical, or at the most e.g. one new
      block has been attached between the gettxout call and the GSP check.  */
 
-  nameInput = GetNameOutpoint (xaya, seller);
+  nameInput = GetNameOutPoint (xaya, seller);
 
   /* gettxout returns a JSON object when the UTXO is found, or JSON null
      if it does not exist.  libjson-rpc-cpp's generated code does not

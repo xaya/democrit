@@ -127,7 +127,8 @@ MockXayaRpcServer::PrepareConstructTransaction (
         ParseJson ("[]"),
         outputs,
         ParseJson (R"({
-          "fee_rate": 100
+          "fee_rate": 100,
+          "lockUnspents": true
         })"))
     ).WillRepeatedly (Return ("chi part"));
 
@@ -157,6 +158,9 @@ MockXayaRpcServer::PrepareConstructTransaction (
     chiOut["value"] = jsonTotal;
     chiOut["scriptPubKey"]["addresses"][0] = sd.chi_address ();
     SetPsbt ("chi part", decoded);
+
+    locked.emplace ("buyer txid", 1);
+    locked.emplace ("buyer txid", 2);
   }
 
   {
@@ -357,6 +361,48 @@ MockXayaRpcServer::namepsbt (const std::string& psbt, const int vout,
   res["psbt"] = NamePsbt (psbt, vout,
                           nameVal.asString (), valueVal.asString ());
 
+  return res;
+}
+
+bool
+MockXayaRpcServer::lockunspent (const bool unlock, const Json::Value& outputs)
+{
+  CHECK (outputs.isArray ());
+  for (const auto& o : outputs)
+    {
+      CHECK (o.isObject ());
+      const std::string txid = o["txid"].asString ();
+      const unsigned vout = o["vout"].asUInt ();
+      const auto entry = std::make_pair (txid, vout);
+
+      const auto mit = locked.find (entry);
+      if (unlock)
+        {
+          if (mit == locked.end ())
+            throw jsonrpc::JsonRpcException (-8, "not locked");
+          locked.erase (mit);
+        }
+      else
+        {
+          if (mit != locked.end ())
+            throw jsonrpc::JsonRpcException (-8, "already locked");
+          locked.insert (entry);
+        }
+    }
+  return true;
+}
+
+Json::Value
+MockXayaRpcServer::listlockunspent ()
+{
+  Json::Value res(Json::arrayValue);
+  for (const auto& entry : locked)
+    {
+      Json::Value cur(Json::objectValue);
+      cur["txid"] = entry.first;
+      cur["vout"] = static_cast<Json::Int> (entry.second);
+      res.append (cur);
+    }
   return res;
 }
 

@@ -77,6 +77,9 @@ private:
    */
   std::map<std::string, Json::Value> psbts;
 
+  /** Locked outputs in the wallet.  */
+  std::set<std::pair<std::string, unsigned>> locked;
+
   /** The current best block, e.g. returned as part of gettxout.  */
   xaya::uint256 bestBlock;
 
@@ -217,6 +220,19 @@ public:
    */
   Json::Value namepsbt (const std::string& psbt, int vout,
                         const Json::Value& nameOp) override;
+
+  /**
+   * Locks or unlocks a given output.  We mimick Xaya Core's behaviour with
+   * an "almost real" implementation of in-memory locked lists.  Returns true
+   * on success, and throws a JSON-RPC error on error (e.g. the output is
+   * already / not locked).
+   */
+  bool lockunspent (bool unlock, const Json::Value& outputs) override;
+
+  /**
+   * Returns the current list of in-memory locked outputs.
+   */
+  Json::Value listlockunspent () override;
 
   /**
    * Combines signatures in the given PSBTs.  It expects that we have a decoded

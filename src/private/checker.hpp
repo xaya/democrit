@@ -24,16 +24,24 @@
 #include "proto/trades.pb.h"
 #include "rpc-stubs/xayarpcclient.h"
 
+#include <json/json.h>
+
 #include <string>
 
 namespace democrit
 {
 
 /**
+ * Helper method to convert a JSON object with "txid" and "vout"
+ * to the outpoint proto.
+ */
+proto::OutPoint OutPointFromJson (const Json::Value& val);
+
+/**
  * Uses name_show to query for the current outpoint of a name, including
  * sanity-checking the response.
  */
-proto::OutPoint GetNameOutpoint (RpcClient<XayaRpcClient>& rpc,
+proto::OutPoint GetNameOutPoint (RpcClient<XayaRpcClient>& rpc,
                                  const std::string& account);
 
 /**

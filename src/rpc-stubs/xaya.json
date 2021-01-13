@@ -53,6 +53,16 @@
     "params": ["psbt"],
     "returns": {}
   },
+  {
+    "name": "lockunspent",
+    "params": [false, ["outputs"]],
+    "returns": true
+  },
+  {
+    "name": "listlockunspent",
+    "params": [],
+    "returns": []
+  },
 
   {
     "name": "combinepsbt",

@@ -212,6 +212,24 @@ public:
   }
 
   /**
+   * Returns the locked status (true=locked, false=unlocked) of the given
+   * input in the mock server.
+   */
+  bool
+  IsLocked (const std::string& txid, const unsigned vout) const
+  {
+    const auto locked = xayaRpc->listlockunspent ();
+    CHECK (locked.isArray ());
+    for (const auto& e : locked)
+      {
+        CHECK (e.isObject ());
+        if (e["txid"].asString () == txid && e["vout"].asUInt () == vout)
+          return true;
+      }
+    return false;
+  }
+
+  /**
    * Returns the internal proto state data for a Trade instance.  This is
    * just used to expose that private data through this class being a friend
    * of Trade.
@@ -761,6 +779,40 @@ TEST_F (TradeSellerDataTests, AddsAndRepliesSellerData)
       )"));
 }
 
+TEST_F (TradeSellerDataTests, LockingOfNameInput)
+{
+  EXPECT_EQ (tm.IsLocked ("me txid", 12), false);
+
+  EXPECT_THAT (
+      ExpectReplyAndNewState (R"(
+        state: INITIATED
+        order: { id: 1 account: "me" type: ASK }
+        counterparty: "other"
+      )", R"(
+        state: INITIATED
+        order: { id: 1 account: "me" type: ASK }
+        counterparty: "other"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "me txid" n: 12 }
+          }
+      )"),
+      EqualsProcessingMessage (R"(
+        counterparty: "other"
+        identifier: "me\n1"
+        seller_data: { name_address: "addr 1" chi_address: "addr 2" }
+      )"));
+
+  EXPECT_EQ (tm.IsLocked ("me txid", 12), true);
+
+  ExpectNoReply (R"(
+    state: INITIATED
+    order: { account: "me" type: ASK }
+  )");
+}
+
 /* ************************************************************************** */
 
 using TradeReceivingPsbtTests = TradeStateTests;
@@ -947,6 +999,10 @@ TEST_F (TradeBuyerTransactionTests, BuyerSignedEverything)
     counterparty: "other"
     seller_data: { name_address: "addr 1" chi_address: "addr 2" }
   )");
+
+  /* This should not leave the inputs in the wallet locked.  */
+  EXPECT_FALSE (tm.IsLocked ("buyer txid", 1));
+  EXPECT_FALSE (tm.IsLocked ("buyer txid", 2));
 }
 
 TEST_F (TradeBuyerTransactionTests, BuyerIsMaker)
@@ -988,6 +1044,10 @@ TEST_F (TradeBuyerTransactionTests, BuyerIsMaker)
         identifier: "me\n42"
         psbt: { psbt: "unsigned" }
       )"));
+
+  /* The currency inputs of the buyer should have been locked.  */
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 1));
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 2));
 }
 
 TEST_F (TradeBuyerTransactionTests, BuyerIsTaker)
@@ -1029,6 +1089,10 @@ TEST_F (TradeBuyerTransactionTests, BuyerIsTaker)
         identifier: "other\n42"
         psbt: { psbt: "partial" }
       )"));
+
+  /* The currency inputs of the buyer should have been locked.  */
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 1));
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 2));
 }
 
 /* ************************************************************************** */
@@ -2049,6 +2113,69 @@ TEST_F (TradeManagerTests, PartialOrderRestorationAfterSuccess)
       EXPECT_EQ (actual.type (), proto::Order::BID);
       EXPECT_FALSE (actual.has_locked ());
     }
+}
+
+TEST_F (TradeManagerTests, UnlocksNameInputOnFailure)
+{
+  env.GetXayaRpc ()->lockunspent (false, ParseJson (R"([
+    {"txid": "seller txid", "vout": 12}
+  ])"));
+
+  tm.AddTrade (R"(
+    state: ABANDONED
+    order:
+      {
+        account: "other"
+        type: BID
+      }
+    counterparty: "other"
+    seller_data:
+      {
+        name_address: "addr 1"
+        chi_address: "addr 2"
+        name_output: { hash: "seller txid" n: 12 }
+      }
+  )");
+
+  EXPECT_TRUE (tm.IsLocked ("seller txid", 12));
+  tm.UpdateAndArchiveTrades ();
+  EXPECT_FALSE (tm.IsLocked ("seller txid", 12));
+}
+
+TEST_F (TradeManagerTests, UnlocksChiInputsOnFailure)
+{
+  env.GetXayaRpc ()->lockunspent (false, ParseJson (R"([
+    {"txid": "buyer txid", "vout": 1},
+    {"txid": "buyer txid", "vout": 2}
+  ])"));
+  env.GetXayaServer ().SetPsbt ("psbt", ParseJson (R"({
+    "tx":
+      {
+        "vin":
+          [
+            {"txid": "buyer txid", "vout": 1},
+            {"txid": "buyer txid", "vout": 2},
+            {"txid": "seller txid", "vout": 12}
+          ]
+      }
+  })"));
+
+  tm.AddTrade (R"(
+    state: ABANDONED
+    order:
+      {
+        account: "other"
+        type: ASK
+      }
+    counterparty: "other"
+    our_psbt: "psbt"
+  )");
+
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 1));
+  EXPECT_TRUE (tm.IsLocked ("buyer txid", 2));
+  tm.UpdateAndArchiveTrades ();
+  EXPECT_FALSE (tm.IsLocked ("buyer txid", 1));
+  EXPECT_FALSE (tm.IsLocked ("buyer txid", 2));
 }
 
 /* ************************************************************************** */
