@@ -1,5 +1,5 @@
 #   Democrit - atomic trades for XAYA games
-#   Copyright (C) 2020  Autonomous Worlds Ltd
+#   Copyright (C) 2020-2021  Autonomous Worlds Ltd
 #
 #   This program is free software: you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@ class Daemon:
   up afterwards.
   """
 
-  def __init__ (self, basedir, binary, port, gspRpcUrl,
+  def __init__ (self, basedir, binary, port, gspRpcUrl, xayaRpcUrl, demGspUrl,
                 account, jid, password, room, extraArgs=[]):
     """
     Constructs the manager, which will run the Democrit binary located
@@ -48,7 +48,9 @@ class Daemon:
 
     self.args = [binary]
     self.args.extend (["--rpc_port", str (port)])
-    self.args.extend (["--gsp_rpc_url", gspRpcUrl]);
+    self.args.extend (["--gsp_rpc_url", gspRpcUrl])
+    self.args.extend (["--xaya_rpc_url", xayaRpcUrl])
+    self.args.extend (["--dem_rpc_url", demGspUrl])
     self.args.extend (["--account", account])
     self.args.extend (["--jid", jid])
     self.args.extend (["--password", password])

@@ -384,6 +384,15 @@ public:
   }
 
   /**
+   * Returns the endpoint of the Xaya RPC server.
+   */
+  std::string
+  GetXayaEndpoint () const
+  {
+    return GetEndpoint (xayaPort);
+  }
+
+  /**
    * Exposes the mock g/dem GSP server for controlling it.
    */
   MockDemGsp&
@@ -399,6 +408,15 @@ public:
   GetGspRpc ()
   {
     return gspClient;
+  }
+
+  /**
+   * Returns the endpoint of the g/dem GSP RPC.
+   */
+  std::string
+  GetGspEndpoint () const
+  {
+    return GetEndpoint (gspPort);
   }
 
   /**

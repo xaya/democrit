@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
 
 #include "daemon.hpp"
 
+#include "mockxaya.hpp"
 #include "private/authenticator.hpp"
 #include "private/mucclient.hpp"
 #include "private/stanzas.hpp"
@@ -54,6 +55,7 @@ class DaemonTests : public testing::Test
 protected:
 
   TestAssets assets;
+  TestEnvironment<MockXayaRpcServer> env;
 
   DaemonTests ()
   {
@@ -92,9 +94,12 @@ public:
   /**
    * Constructs the instance based on the n-th test account.
    */
-  explicit TestDaemon (const AssetSpec& spec, const unsigned n)
-    : Daemon(spec, GetTestAccount (n), GetTestJid (n).full (),
-             GetPassword (n), GetRoom ("room").full ())
+  explicit TestDaemon (const AssetSpec& spec,
+                       TestEnvironment<MockXayaRpcServer>& env,
+                       const unsigned n)
+    : Daemon(spec, GetTestAccount (n),
+             env.GetXayaEndpoint (), env.GetGspEndpoint (),
+             GetTestJid (n).full (), GetPassword (n), GetRoom ("room").full ())
   {
     CHECK (IsConnected ());
   }
@@ -146,8 +151,8 @@ public:
 
 TEST_F (DaemonTests, Basic)
 {
-  TestDaemon d1(assets, 0), d2(assets, 1);
-  auto d3 = std::make_unique<TestDaemon> (assets, 2);
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
+  auto d3 = std::make_unique<TestDaemon> (assets, env, 2);
 
   assets.SetBalance ("xmpptest1", "gold", 100);
   assets.InitialiseAccount ("xmpptest2");
@@ -212,7 +217,7 @@ TEST_F (DaemonTests, Basic)
 
 TEST_F (DaemonTests, WrongAccountSent)
 {
-  TestDaemon d(assets, 0);
+  TestDaemon d(assets, env, 0);
   DirectOrderSender sender(1);
 
   assets.InitialiseAccount ("xmpptest2");
@@ -235,7 +240,7 @@ TEST_F (DaemonTests, WrongAccountSent)
 
 TEST_F (DaemonTests, Timeout)
 {
-  TestDaemon d1(assets, 0), d2(assets, 1);
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
   DirectOrderSender sender(2);
 
   assets.SetBalance ("xmpptest1", "gold", 10);
@@ -268,7 +273,7 @@ TEST_F (DaemonTests, Timeout)
 
 TEST_F (DaemonTests, OrderValidation)
 {
-  TestDaemon d(assets, 0);
+  TestDaemon d(assets, env, 0);
   DirectOrderSender sender(1);
 
   // xmpptest1 is not (yet) initialised

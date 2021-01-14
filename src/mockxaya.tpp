@@ -27,9 +27,9 @@ template <typename XayaServer>
   TestEnvironment<XayaServer>::TestEnvironment ()
   : xayaPort(GetPortForMockServer ()), gspPort(GetPortForMockServer ()),
     xayaHttpServer(xayaPort), xayaRpcServer(xayaHttpServer),
-    xayaClient(GetEndpoint (xayaPort)),
+    xayaClient(GetXayaEndpoint ()),
     gspHttpServer(gspPort), gspRpcServer(gspHttpServer),
-    gspClient(GetEndpoint (gspPort))
+    gspClient(GetGspEndpoint ())
 {
   xayaRpcServer.StartListening ();
   gspRpcServer.StartListening ();

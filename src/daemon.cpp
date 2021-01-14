@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,9 +23,13 @@
 #include "private/mucclient.hpp"
 #include "private/myorders.hpp"
 #include "private/orderbook.hpp"
+#include "private/rpcclient.hpp"
 #include "private/stanzas.hpp"
 #include "private/state.hpp"
-#include "proto/orders.pb.h"
+#include "private/trades.hpp"
+#include "proto/processing.pb.h"
+#include "rpc-stubs/demgsprpcclient.h"
+#include "rpc-stubs/xayarpcclient.h"
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -89,6 +93,15 @@ private:
   /** General orderbook that we know of.  */
   OrderBook allOrders;
 
+  /** RPC connection to the Xaya wallet.  */
+  RpcClient<XayaRpcClient> xayaRpc;
+
+  /** RPC connection to the g/dem GSP.  */
+  RpcClient<DemGspRpcClient> demGsp;
+
+  /** Handler for active trades.  */
+  TradeManager trades;
+
   /** Interval job for checking the connection and perhaps reconnecting.  */
   std::unique_ptr<IntervalJob> reconnecter;
 
@@ -110,6 +123,7 @@ protected:
 public:
 
   explicit Impl (const AssetSpec& s, const std::string& account,
+                 const std::string& xr, const std::string& dg,
                  const std::string& jid, const std::string& password,
                  const std::string& mucRoom);
 
@@ -154,12 +168,15 @@ Daemon::MyOrdersImpl::UpdateOrders (const proto::OrdersOfAccount& ownOrders)
 }
 
 Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
+                    const std::string& xr, const std::string& dg,
                     const std::string& jid, const std::string& password,
                     const std::string& mucRoom)
   : MucClient (gloox::JID (jid), password, gloox::JID (mucRoom)),
     spec(s), state(account),
     myOrders(*this),
-    allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms))
+    allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms)),
+    xayaRpc(xr), demGsp(dg),
+    trades(state, myOrders, spec, xayaRpc, demGsp, true)
 {
   std::string jidAccount;
   CHECK (auth.Authenticate (gloox::JID (jid), jidAccount))
@@ -264,9 +281,11 @@ Daemon::Impl::HandleDisconnect (const gloox::JID& disconnected)
 /* ************************************************************************** */
 
 Daemon::Daemon (const AssetSpec& spec, const std::string& account,
+                const std::string& xayaRpc, const std::string& demGsp,
                 const std::string& jid, const std::string& password,
                 const std::string& mucRoom)
-  : impl(std::make_unique<Impl> (spec, account, jid, password, mucRoom))
+  : impl(std::make_unique<Impl> (spec, account, xayaRpc, demGsp,
+                                 jid, password, mucRoom))
 {}
 
 Daemon::~Daemon () = default;
@@ -299,6 +318,23 @@ proto::OrdersOfAccount
 Daemon::GetOwnOrders () const
 {
   return impl->myOrders.GetOrders ();
+}
+
+std::vector<proto::Trade>
+Daemon::GetTrades () const
+{
+  return impl->trades.GetTrades ();
+}
+
+bool
+Daemon::TakeOrder (const proto::Order& o, const Amount units)
+{
+  proto::ProcessingMessage msg;
+  if (!impl->trades.TakeOrder (o, units, msg))
+    return false;
+
+  /* FIXME: Send processing message via XMPP.  */
+  return true;
 }
 
 std::string

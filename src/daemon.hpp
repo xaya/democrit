@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 
 #include "assetspec.hpp"
 #include "proto/orders.pb.h"
+#include "proto/trades.pb.h"
 
 #include <memory>
 #include <string>
@@ -55,6 +56,7 @@ private:
 public:
 
   explicit Daemon (const AssetSpec& spec, const std::string& account,
+                   const std::string& xayaRpc, const std::string& demGspRpc,
                    const std::string& jid, const std::string& password,
                    const std::string& mucRoom);
 
@@ -91,6 +93,18 @@ public:
    * Returns the own orders currently being advertised.
    */
   proto::OrdersOfAccount GetOwnOrders () const;
+
+  /**
+   * Returns the list of known trades.
+   */
+  std::vector<proto::Trade> GetTrades () const;
+
+  /**
+   * Requests to take another's order for the given number of units.
+   * Returns true on success (if the process could at least be started)
+   * and false if something failed right away.
+   */
+  bool TakeOrder (const proto::Order& o, Amount units);
 
   /**
    * Returns the account name this is running for.
