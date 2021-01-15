@@ -111,12 +111,20 @@ private:
    */
   bool ValidateOrder (const std::string& account, const proto::Order& o) const;
 
+  /**
+   * Sends a ProcessingMessage via XMPP to the counterparty specified in
+   * the message.
+   */
+  void SendProcessingMessage (proto::ProcessingMessage&& msg);
+
   friend class Daemon;
   friend class MyOrdersImpl;
 
 protected:
 
   void HandleMessage (const gloox::JID& sender,
+                      const gloox::Stanza& msg) override;
+  void HandlePrivate (const gloox::JID& sender,
                       const gloox::Stanza& msg) override;
   void HandleDisconnect (const gloox::JID& disconnected) override;
 
@@ -185,6 +193,7 @@ Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
       << "Our JID " << jid << " does not match claimed account " << account;
 
   RegisterExtension (std::make_unique<AccountOrdersStanza> ());
+  RegisterExtension (std::make_unique<ProcessingMessageStanza> ());
 
   /* We do periodic reconnects (later), but also a synchronous connect right now
      to make sure the daemon is connected on startup.  */
@@ -234,6 +243,26 @@ Daemon::Impl::ValidateOrder (const std::string& account,
 }
 
 void
+Daemon::Impl::SendProcessingMessage (proto::ProcessingMessage&& msg)
+{
+  gloox::JID receiver;
+  if (!auth.LookupJid (msg.counterparty (), receiver))
+    {
+      LOG (ERROR) << "Failed to lookup JID for account " << msg.counterparty ();
+      return;
+    }
+
+  msg.clear_counterparty ();
+  MucClient::ExtensionData ext;
+  ext.push_back (std::make_unique<ProcessingMessageStanza> (msg));
+
+  VLOG (1)
+      << "Sending processing message to " << receiver.full () << ":\n"
+      << msg.DebugString ();
+  SendMessage (receiver, std::move (ext));
+}
+
+void
 Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
 {
   std::string account;
@@ -259,6 +288,30 @@ Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
               << o.second.DebugString ();
 
       allOrders.UpdateOrders (std::move (orders));
+    }
+}
+
+void
+Daemon::Impl::HandlePrivate (const gloox::JID& sender, const gloox::Stanza& msg)
+{
+  std::string account;
+  if (!auth.Authenticate (sender, account))
+    {
+      LOG (WARNING) << "Failed to get account for JID " << sender.full ();
+      return;
+    }
+
+  const auto* pmExt
+      = msg.findExtension<ProcessingMessageStanza> (
+          ProcessingMessageStanza::EXT_TYPE);
+  if (pmExt != nullptr && pmExt->IsValid ())
+    {
+      proto::ProcessingMessage msg = pmExt->GetData ();
+      msg.set_counterparty (account);
+
+      proto::ProcessingMessage reply;
+      if (trades.ProcessMessage (msg, reply))
+        SendProcessingMessage (std::move (reply));
     }
 }
 
@@ -289,6 +342,12 @@ Daemon::Daemon (const AssetSpec& spec, const std::string& account,
 {}
 
 Daemon::~Daemon () = default;
+
+State&
+Daemon::GetStateForTesting ()
+{
+  return impl->state;
+}
 
 proto::OrderbookForAsset
 Daemon::GetOrdersForAsset (const Asset& asset) const
@@ -333,7 +392,7 @@ Daemon::TakeOrder (const proto::Order& o, const Amount units)
   if (!impl->trades.TakeOrder (o, units, msg))
     return false;
 
-  /* FIXME: Send processing message via XMPP.  */
+  impl->SendProcessingMessage (std::move (msg));
   return true;
 }
 

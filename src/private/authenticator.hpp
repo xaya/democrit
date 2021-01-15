@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include <set>
 #include <string>
+#include <unordered_map>
 
 namespace democrit
 {
@@ -40,6 +41,14 @@ private:
 
   /** The set of trusted servers.  */
   const std::set<std::string> xidServers;
+
+  /**
+   * In-memory map of accounts to JIDs that have been authenticated
+   * successfully.  We use this to lookup the JID for sending messages back,
+   * and knowing which server (as well as resource and all that)
+   * they were using when sending to us.
+   */
+  mutable std::unordered_map<std::string, gloox::JID> knownJids;
 
   /**
    * Constructs an instance with the list of servers extracted from
@@ -66,6 +75,20 @@ public:
    * given Xaya account) and false if we failed to do so.
    */
   bool Authenticate (const gloox::JID& jid, std::string& account) const;
+
+  /**
+   * Finds the JID corresponding to a Xaya account (i.e. the reverse of
+   * Authenticate).  Since we do not know which of the servers the account
+   * may be using, we do not simply encode the name back.  Instead, we have
+   * an in-memory map of all JIDs that were successfully authenticated
+   * previously, and then use that map to look up the JID for the authenticated
+   * account.  During normal operation, we will always receive messages from
+   * some account first before we need to send private messages to them.
+   *
+   * The method returns false if we are unable to locate the correct JID,
+   * i.e. because it has not sent a message before to us.
+   */
+  bool LookupJid (const std::string& account, gloox::JID& jid) const;
 
 };
 

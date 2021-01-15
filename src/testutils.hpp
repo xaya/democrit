@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 
 #include "assetspec.hpp"
 #include "proto/orders.pb.h"
+#include "proto/trades.pb.h"
 
 #include <xayautil/uint256.hpp>
 
@@ -133,6 +134,8 @@ template <typename Proto>
 DEFINE_PROTO_MATCHER (EqualsOrdersForAsset, OrderbookForAsset)
 DEFINE_PROTO_MATCHER (EqualsOrdersByAsset, OrderbookByAsset)
 DEFINE_PROTO_MATCHER (EqualsOrdersOfAccount, OrdersOfAccount)
+DEFINE_PROTO_MATCHER (EqualsTradeState, TradeState)
+DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
 
 /**
  * Very simple AssetSpec to be used in testing.  It defines three valid

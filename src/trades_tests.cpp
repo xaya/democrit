@@ -39,8 +39,6 @@ namespace
 using testing::ElementsAre;
 using testing::Return;
 
-DEFINE_PROTO_MATCHER (EqualsTradeState, TradeState)
-DEFINE_PROTO_MATCHER (EqualsTrade, Trade)
 DEFINE_PROTO_MATCHER (EqualsProcessingMessage, ProcessingMessage)
 
 constexpr auto NO_EXPIRY = std::chrono::seconds (1'000);

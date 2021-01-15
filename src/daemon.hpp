@@ -29,6 +29,8 @@
 namespace democrit
 {
 
+class State;
+
 /**
  * The main class for running a Democrit daemon.  It manages all the things
  * needed for it, like the underlying XMPP client connection, the processes
@@ -52,6 +54,14 @@ private:
    * file to decouple the public interface from internal stuff.
    */
   std::unique_ptr<Impl> impl;
+
+  /**
+   * Returns the internal state class held by the daemon instance.  This is
+   * used in tests.
+   */
+  State& GetStateForTesting ();
+
+  friend class TestDaemon;
 
 public:
 

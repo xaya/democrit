@@ -22,6 +22,7 @@
 #include "private/authenticator.hpp"
 #include "private/mucclient.hpp"
 #include "private/stanzas.hpp"
+#include "private/state.hpp"
 #include "testutils.hpp"
 
 #include <gflags/gflags.h>
@@ -38,6 +39,8 @@ DECLARE_int64 (democrit_order_timeout_ms);
 
 namespace
 {
+
+using testing::ElementsAre;
 
 /** Order timeout used in tests.  */
 constexpr auto TIMEOUT = std::chrono::milliseconds (100);
@@ -66,6 +69,8 @@ protected:
   }
 
 };
+
+} // anonymous namespace
 
 /**
  * Daemon instance that is based on a test XMPP account.
@@ -114,7 +119,12 @@ public:
     AddOrder (ParseTextProto<proto::Order> (str));
   }
 
+  using Daemon::GetStateForTesting;
+
 };
+
+namespace
+{
 
 /**
  * MUC client to connect with a test account and broadcast orders directly.
@@ -149,7 +159,7 @@ public:
 
 /* ************************************************************************** */
 
-TEST_F (DaemonTests, Basic)
+TEST_F (DaemonTests, BasicOrderExchange)
 {
   TestDaemon d1(assets, env, 0), d2(assets, env, 1);
   auto d3 = std::make_unique<TestDaemon> (assets, env, 2);
@@ -356,6 +366,117 @@ TEST_F (DaemonTests, OrderValidation)
           }
       }
   )"));
+}
+
+TEST_F (DaemonTests, TradeMessages)
+{
+  /* In this test, we ensure that the integration for exchanging trade
+     messages (ProcessingMessage stanzas/protos) via XMPP is working.
+     For this, we take a sell order and let the seller send back the seller
+     data, but the buyer won't find the seller's name UTXO and thus not continue
+     building the transaction.  This is enough for the test, and already
+     checks that sending the initial message on taking an order,
+     receiving/processing this message and sending a reply work, which are
+     all the basic situations.  */
+
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
+
+  assets.SetBalance ("xmpptest1", "gold", 100);
+  assets.InitialiseAccount ("xmpptest2");
+
+  d1.AddFromText (R"(
+    asset: "gold"
+    type: ASK
+    price_sat: 1
+    max_units: 10
+  )");
+
+  SleepSome ();
+  ASSERT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
+    asset: "gold"
+    asks: { account: "xmpptest1" id: 0 price_sat: 1 max_units: 10 }
+  )"));
+
+  const std::string order = R"(
+    account: "xmpptest1"
+    id: 0
+    asset: "gold"
+    type: ASK
+    price_sat: 1
+    max_units: 10
+  )";
+  ASSERT_TRUE (d2.TakeOrder (ParseTextProto<proto::Order> (order), 1));
+  SleepSome ();
+
+  /* The order should have been locked temporarily.  */
+  EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
+    asset: "gold"
+  )"));
+
+  /* The start_time will be filled in with real time, which we cannot predict
+     for the test.  Thus manually fake it.  */
+  d1.GetStateForTesting ().AccessState ([&order] (proto::State& s)
+    {
+      ASSERT_EQ (s.trades_size (), 1);
+      auto& t = *s.mutable_trades (0);
+      t.set_start_time (123);
+      EXPECT_THAT (t, EqualsTradeState (R"(
+        state: INITIATED
+        start_time: 123
+        order: { )" + order + R"(}
+        units: 1
+        counterparty: "xmpptest2"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "xmpptest1 txid" n: 12 }
+          }
+      )"));
+    });
+  d2.GetStateForTesting ().AccessState ([&order] (proto::State& s)
+    {
+      ASSERT_EQ (s.trades_size (), 1);
+      auto& t = *s.mutable_trades (0);
+      t.set_start_time (123);
+      EXPECT_THAT (t, EqualsTradeState (R"(
+        state: INITIATED
+        start_time: 123
+        order: { )" + order + R"(}
+        units: 1
+        counterparty: "xmpptest1"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+          }
+      )"));
+    });
+
+  EXPECT_THAT (d1.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "xmpptest2"
+      role: MAKER
+      type: ASK
+      asset: "gold"
+      units: 1
+      price_sat: 1
+    )")
+  ));
+  EXPECT_THAT (d2.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "xmpptest1"
+      role: TAKER
+      type: BID
+      asset: "gold"
+      units: 1
+      price_sat: 1
+    )")
+  ));
 }
 
 /* ************************************************************************** */
