@@ -29,6 +29,9 @@ import time
 # so we can easily test timeout behaviour.
 ORDER_TIMEOUT = 0.1
 
+# Trade timeout (also the trade refresh interval) used in tests.
+TRADE_TIMEOUT = 0.1
+
 
 class Daemon:
   """
@@ -58,6 +61,9 @@ class Daemon:
     self.args.extend (["--democrit_xid_servers", "localhost"])
     self.args.extend (["--democrit_order_timeout_ms",
                        str (int (ORDER_TIMEOUT * 1_000))])
+    self.args.extend (["--democrit_confirmations", str (10)])
+    self.args.extend (["--democrit_trade_timeout_ms",
+                       str (int (TRADE_TIMEOUT * 1_000))])
     self.args.extend (extraArgs)
 
     self.account = account
@@ -118,3 +124,18 @@ class Daemon:
       order["min_units"] = minUnits
 
     return self.rpc.addorder (order=order)
+
+  def getTrades (self):
+    """
+    Returns the list of trades as per the gettrades RPC method.  It strips
+    out the start_time fields, since those cannot be directly compared to
+    golden data.
+    """
+
+    data = self.rpc.gettrades ()
+
+    for d in data:
+      assert "start_time" in d
+      del d["start_time"]
+
+    return data

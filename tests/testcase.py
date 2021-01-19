@@ -69,11 +69,32 @@ class NonFungibleTest (XayaGameTest):
   def shutdown (self):
     self.demGsp.stop ()
 
+  def syncGame (self):
+    """
+    Makes sure both the underlying nonfungible and Democrit GSPs are synced
+    up-to-date with Xaya Core's best block.
+    """
+
+    super ().syncGame ()
+
+    bestBlk = self.rpc.xaya.getbestblockhash ()
+    while True:
+      state = self.demGsp.rpc.getnullstate ()
+      self.assertEqual (state["gameid"], "dem")
+      self.assertEqual (state["chain"], "regtest")
+      if state["state"] == "up-to-date" and state["blockhash"] == bestBlk:
+        return
+      time.sleep (0.01)
+
   @contextmanager
-  def runDemocrit (self):
+  def runDemocrit (self, wallet=""):
     """
     Returns a context manager that runs a Democrit daemon with one of our
     test accounts.
+
+    Optionally, the Democrit daemon can be connected to a non-default
+    wallet in Xaya Core, so that e.g. two wallets (but within the same
+    Xaya Core) can trade with each other.
     """
 
     binary = self.getBinaryPath ("nonfungible", "nonfungible-democrit")
@@ -86,6 +107,12 @@ class NonFungibleTest (XayaGameTest):
     if accountIndex is None:
       raise RuntimeError ("no free account for another Democrit daemon")
 
+    # This will be set to a JSON-RPC ServerProxy for the Xaya Core
+    # with our selected wallet.  We need to make sure to clean it up
+    # after the test (close the socket), or else Xaya Core will wait
+    # for the connection to be closed on shutdown.
+    xaya = None
+
     try:
       self.accountInUse[accountIndex] = True
       port = self.basePort + 11 + accountIndex
@@ -96,13 +123,20 @@ class NonFungibleTest (XayaGameTest):
       os.makedirs (basedir, exist_ok=True)
       jid = "%s@%s" % (accountConfig[0], XMPP_CONFIG["server"])
 
+      xayaUrl, xaya = self.xayanode.getWalletRpc (wallet)
+
       with democrit.Daemon (basedir, binary, port, self.gamenode.rpcurl,
-                            self.xayanode.rpcurl, self.demGsp.rpcurl,
+                            xayaUrl, self.demGsp.rpcurl,
                             account, jid, accountConfig[1],
                             XMPP_CONFIG["room"]) as d:
+        # For convenience (e.g. to send CHI to the daemon's wallet), we store
+        # an RPC handle for the selected wallet inside the instance.
+        d.xaya = xaya
         yield d
     finally:
       self.accountInUse[accountIndex] = False
+      if xaya:
+        xaya ("close") ()
 
   def sleepSome (self):
     """
@@ -111,6 +145,15 @@ class NonFungibleTest (XayaGameTest):
     """
 
     time.sleep (0.01)
+
+  def updateTrades (self):
+    """
+    Sleeps a long enough time to make sure the trade update has been run
+    (e.g. timing out abandoned ones) by all active daemons.
+    """
+
+    self.syncGame ()
+    time.sleep (1.5 * democrit.TRADE_TIMEOUT)
 
   def jsonAsset (self, minter, asset):
     """
@@ -136,3 +179,24 @@ class NonFungibleTest (XayaGameTest):
       top_builddir = ".."
 
     return os.path.join (top_builddir, *components)
+
+  def expectApproxBalance (self, xaya, expected):
+    """
+    Expects that the balance of the given Xaya RPC connection is
+    approximately (+- some for fees) the expected amount.
+    """
+
+    eps = 0.1
+    actual = xaya.getbalance ()
+    assert actual >= expected - eps
+    assert actual <= expected + eps
+
+  def expectAsset (self, account, asset, expected):
+    """
+    Expects that the balance of the given asset with the given account
+    (in the nonfungible game state) matches some value.
+    """
+
+    actual = self.getCustomState ("data", "getbalance",
+                                  name=account, asset=asset)
+    self.assertEqual (actual, expected)

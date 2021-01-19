@@ -1,7 +1,8 @@
 REGTESTS = \
   getstatus.py \
   orderbook.py \
-  orderrefresh.py
+  orderrefresh.py \
+  trading_success.py
 
 noinst_PYTHON = $(REGTESTS) \
   democrit.py \
