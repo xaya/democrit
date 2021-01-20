@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -50,23 +50,25 @@ RpcServer::checktrade (const std::string& btxid)
   LOG (INFO) << "RPC method called: checktrade " << btxid;
   const auto data = logic.CheckTrade (game, btxid);
 
-  Json::Value res(Json::objectValue);
+  Json::Value state(Json::objectValue);
   switch (data.state)
     {
     case DemGame::TradeState::UNKNOWN:
-      res["state"] = "unknown";
+      state["state"] = "unknown";
       break;
     case DemGame::TradeState::PENDING:
-      res["state"] = "pending";
+      state["state"] = "pending";
       break;
     case DemGame::TradeState::CONFIRMED:
-      res["state"] = "confirmed";
-      res["height"] = static_cast<Json::Int> (data.confirmationHeight);
+      state["state"] = "confirmed";
+      state["height"] = static_cast<Json::Int> (data.confirmationHeight);
       break;
     default:
       LOG (FATAL) << "Unexpected trade state";
     }
 
+  Json::Value res = data.gspState;
+  res["data"] = state;
   return res;
 }
 

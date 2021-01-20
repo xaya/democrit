@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -148,7 +148,7 @@ DemGame::CheckTrade (const xaya::Game& g, const std::string& btxid)
      in practice.  */
 
   const Json::Value pending = g.GetPendingJsonState ()["pending"];
-  const Json::Value confirmed = GetCustomStateData (g, "data",
+  Json::Value confirmed = GetCustomStateData (g, "data",
       [&btxid] (const xaya::SQLiteDatabase& db) -> Json::Value
       {
         auto stmt = db.PrepareRo (R"(
@@ -165,17 +165,22 @@ DemGame::CheckTrade (const xaya::Game& g, const std::string& btxid)
         CHECK (!stmt.Step ());
 
         return static_cast<Json::Int> (height);
-      })["data"];
+      });
 
   CHECK (pending.isObject ());
-  CHECK (confirmed.isNull () || confirmed.isUInt ());
+  CHECK (confirmed.isObject ());
+
+  Json::Value data;
+  CHECK (confirmed.removeMember ("data", &data));
+  CHECK (data.isNull () || data.isUInt ());
 
   TradeData res;
+  res.gspState = confirmed;
 
-  if (confirmed.asInt ())
+  if (data.isInt ())
     {
       res.state = TradeState::CONFIRMED;
-      res.confirmationHeight = confirmed.asUInt ();
+      res.confirmationHeight = data.asUInt ();
       return res;
     }
 

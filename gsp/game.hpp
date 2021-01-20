@@ -87,6 +87,12 @@ public:
     /** If the trade is confirmed, the height at which it was confirmed.  */
     unsigned confirmationHeight;
 
+    /**
+     * Basic data about the GSP state as per GetCustomStateData, e.g.
+     * the GSP's current syncing status or block height.
+     */
+    Json::Value gspState;
+
   };
 
   /**

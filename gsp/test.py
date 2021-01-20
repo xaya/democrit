@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 #   Democrit - atomic trades for XAYA games
-#   Copyright (C) 2020  Autonomous Worlds Ltd
+#   Copyright (C) 2020-2021  Autonomous Worlds Ltd
 #
 #   This program is free software: you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -39,8 +39,8 @@ class DemGspTest (XayaGameTest):
     self.assertEqual (self.getPendingState (), expected)
 
   def expectState (self, btxid, state):
-    time.sleep (0.05)
-    self.assertEqual (self.rpc.game.checktrade (btxid), state)
+    actual = self.getCustomState ("data", "checktrade", btxid)
+    self.assertEqual (actual, state)
 
   def sendMove (self, name, mv={}):
     """
