@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -53,6 +53,7 @@ public:
   {}
 
   void stop () override;
+  Json::Value getnullstate () override;
   Json::Value getcurrentstate () override;
   Json::Value getpendingstate () override;
 

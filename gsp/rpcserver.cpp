@@ -31,6 +31,13 @@ RpcServer::stop ()
 }
 
 Json::Value
+RpcServer::getnullstate ()
+{
+  LOG (INFO) << "RPC method called: getnullstate";
+  return game.GetNullJsonState ();
+}
+
+Json::Value
 RpcServer::getcurrentstate ()
 {
   LOG (INFO) << "RPC method called: getcurrentstate";
