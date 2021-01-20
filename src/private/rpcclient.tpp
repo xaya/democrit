@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -33,7 +33,10 @@ template <typename T>
     return mit->second;
 
   const auto http = httpClients.emplace (id, endpoint);
-  const auto rpc = rpcClients.emplace (id, http.first->second);
+  const auto rpc = rpcClients.emplace (
+      std::piecewise_construct,
+      std::forward_as_tuple (id),
+      std::forward_as_tuple (http.first->second, clientVersion));
 
   return rpc.first->second;
 }

@@ -37,6 +37,8 @@ namespace democrit
 DECLARE_string (democrit_xid_servers);
 DECLARE_int64 (democrit_order_timeout_ms);
 
+extern bool useLegacyXayaRpcInDaemon;
+
 namespace
 {
 
@@ -66,6 +68,8 @@ protected:
 
     const std::chrono::milliseconds timeoutMs(TIMEOUT);
     FLAGS_democrit_order_timeout_ms = timeoutMs.count ();
+
+    useLegacyXayaRpcInDaemon = false;
   }
 
 };

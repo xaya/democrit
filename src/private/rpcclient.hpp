@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 #ifndef DEMOCRIT_RPCCLIENT_HPP
 #define DEMOCRIT_RPCCLIENT_HPP
 
+#include <jsonrpccpp/client.h>
 #include <jsonrpccpp/client/connectors/httpclient.h>
 
 #include <map>
@@ -43,6 +44,9 @@ private:
   /** The JSON-RPC HTTP endpoint to use.  */
   const std::string endpoint;
 
+  /** The JSON-RPC client version to use.  */
+  const jsonrpc::clientVersion_t clientVersion;
+
   /** The HTTP client instances we use for our JSON-RPC clients per thread.  */
   std::map<std::thread::id, jsonrpc::HttpClient> httpClients;
 
@@ -54,8 +58,14 @@ private:
 
 public:
 
-  explicit RpcClient (const std::string& ep)
-    : endpoint(ep)
+  /**
+   * Constructs a new RPC client with the given endpoint.  By default it will
+   * be using the JSONRPC_CLIENT_V2 protocol; if legacy is set to true, it
+   * will use V1 instead (needed for Xaya Core).
+   */
+  explicit RpcClient (const std::string& ep, const bool l = false)
+    : endpoint(ep),
+      clientVersion(l ? jsonrpc::JSONRPC_CLIENT_V1 : jsonrpc::JSONRPC_CLIENT_V2)
   {}
 
   RpcClient () = delete;

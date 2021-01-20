@@ -44,6 +44,13 @@ DEFINE_int64 (democrit_order_timeout_ms, 10 * 60 * 1'000,
 DEFINE_int64 (democrit_reconnect_ms, 10 * 1'000,
               "Interval (in milliseconds) for trying to reconnect to XMPP");
 
+/**
+ * Whether or not we should use the "legacy" V1 protocol for the Xaya
+ * RPC client.  The real Xaya Core needs it, but in unit tests against our
+ * mock server we want to disable this.
+ */
+bool useLegacyXayaRpcInDaemon = true;
+
 /* ************************************************************************** */
 
 /**
@@ -183,7 +190,7 @@ Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
     spec(s), state(account),
     myOrders(*this),
     allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms)),
-    xayaRpc(xr), demGsp(dg),
+    xayaRpc(xr, useLegacyXayaRpcInDaemon), demGsp(dg),
     trades(state, myOrders, spec, xayaRpc, demGsp, true)
 {
   std::string jidAccount;
