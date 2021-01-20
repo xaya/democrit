@@ -140,8 +140,14 @@ public:
       std::lock_guard<std::mutex> lock(mutRpc);
       response = gsp.getbalance (jsonAsset, name);
     }
+    CHECK (response.isObject ());
+
     const auto& balance = response["data"];
     CHECK (balance.isInt64 ());
+
+    const auto& hashVal = response["blockhash"];
+    CHECK (hashVal.isString ());
+    CHECK (hash.FromHex (hashVal.asString ()));
 
     return n <= balance.asInt64 ();
   }

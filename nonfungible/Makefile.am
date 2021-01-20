@@ -8,10 +8,12 @@ CLEANFILES = $(RPC_STUBS)
 
 nonfungible_democrit_CXXFLAGS = \
   -I$(top_srcdir)/src \
+  $(XAYAGAME_CFLAGS) \
   $(JSON_CFLAGS) $(JSONRPCCPPSERVER_CFLAGS) $(JSONRPCCPPCLIENT_CFLAGS) \
   $(GLOG_CFLAGS) $(GFLAGS_CFLAGS)
 nonfungible_democrit_LDADD = \
   $(top_builddir)/src/libdemocrit.la \
+  $(XAYAGAME_LIBS) \
   $(JSON_LIBS) $(JSONRPCCPPSERVER_LIBS) $(JSONRPCCPPCLIENT_LIBS) \
   $(GLOG_LIBS) $(GFLAGS_LIBS)
 nonfungible_democrit_SOURCES = main.cpp
