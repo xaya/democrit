@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 #include "proto/state.pb.h"
 
 #include <mutex>
+#include <string>
 
 namespace democrit
 {
@@ -47,8 +48,17 @@ private:
 
 public:
 
-  State () = default;
+  /**
+   * Creates an empty instance, with just the account name set already.
+   * This is something that all code expects, so we need to make sure
+   * it happens immediately.
+   */
+  explicit State (const std::string& account)
+  {
+    state.set_account (account);
+  }
 
+  State () = delete;
   State (const State&) = delete;
   void operator= (const State&) = delete;
 

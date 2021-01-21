@@ -157,15 +157,10 @@ Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
                     const std::string& jid, const std::string& password,
                     const std::string& mucRoom)
   : MucClient (gloox::JID (jid), password, gloox::JID (mucRoom)),
-    spec(s),
+    spec(s), state(account),
     myOrders(*this),
     allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms))
 {
-  state.AccessState ([&] (proto::State& s)
-    {
-      s.set_account (account);
-    });
-
   std::string jidAccount;
   CHECK (auth.Authenticate (gloox::JID (jid), jidAccount))
       << "Failed to authenticate our own JID " << jid;
