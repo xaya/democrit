@@ -188,8 +188,9 @@ class NonFungibleTest (XayaGameTest):
 
     eps = 0.1
     actual = xaya.getbalance ()
-    assert actual >= expected - eps
-    assert actual <= expected + eps
+    msg = "%f is not approx %f" % (actual, expected)
+    assert actual >= expected - eps, msg
+    assert actual <= expected + eps, msg
 
   def expectAsset (self, account, asset, expected):
     """

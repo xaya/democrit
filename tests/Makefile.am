@@ -4,8 +4,14 @@ REGTESTS = \
   orderrefresh.py \
   trading_success.py
 
+SCRIPTTESTS = \
+  trading_conflict_chi.sh \
+  trading_conflict_name.sh
+
+dist_check_SCRIPTS = $(SCRIPTTESTS)
 noinst_PYTHON = $(REGTESTS) \
   democrit.py \
-  testcase.py
+  testcase.py \
+  trading_conflict.py
 
-TESTS = $(REGTESTS)
+TESTS = $(REGTESTS) $(SCRIPTTESTS)
