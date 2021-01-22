@@ -43,5 +43,20 @@
         "id": 42
       },
     "returns": {}
+  },
+
+  {
+    "name": "gettrades",
+    "params": {},
+    "returns": []
+  },
+  {
+    "name": "takeorder",
+    "params":
+      {
+        "order": {},
+        "units": 42
+      },
+    "returns": true
   }
 ]

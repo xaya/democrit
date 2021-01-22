@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -42,6 +42,11 @@ using democrit::Asset;
 
 DEFINE_string (gsp_rpc_url, "",
                "URL at which the GSP's JSON-RPC interface is available");
+
+DEFINE_string (xaya_rpc_url, "",
+               "URL at which Xaya's JSON-RPC interface is available");
+DEFINE_string (dem_rpc_url, "",
+               "URL at which the Democrit GSP's RPC interface is available");
 
 DEFINE_int32 (rpc_port, 0,
               "the port at which Democrit's JSON-RPC server will be started");
@@ -193,6 +198,10 @@ main (int argc, char** argv)
     {
       if (FLAGS_gsp_rpc_url.empty ())
         throw UsageError ("--gsp_rpc_url must be set");
+      if (FLAGS_xaya_rpc_url.empty ())
+        throw UsageError ("--xaya_rpc_url must be set");
+      if (FLAGS_dem_rpc_url.empty ())
+        throw UsageError ("--dem_rpc_url must be set");
 
       if (FLAGS_rpc_port == 0)
         throw UsageError ("--rpc_port must be set");
@@ -207,6 +216,7 @@ main (int argc, char** argv)
       NfAssetSpec spec(gsp);
 
       democrit::Daemon daemon(spec, FLAGS_account,
+                              FLAGS_xaya_rpc_url, FLAGS_dem_rpc_url,
                               FLAGS_jid, FLAGS_password, FLAGS_room);
 
       jsonrpc::HttpServer httpServer(FLAGS_rpc_port);

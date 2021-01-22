@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #define DEMOCRIT_STANZAS_HPP
 
 #include "proto/orders.pb.h"
+#include "proto/processing.pb.h"
 
 #include <gloox/stanzaextension.h>
 #include <gloox/tag.h>
@@ -102,6 +103,22 @@ class AccountOrdersStanza
 public:
 
   static constexpr const char* TAG = "orders";
+
+  using ProtoStanza::ProtoStanza;
+
+};
+
+/**
+ * Stanza for encoding a processing message, which contains the data exchanged
+ * privately between accounts while negotiating a trade.
+ */
+class ProcessingMessageStanza
+    : public ProtoStanza<proto::ProcessingMessage, 2, ProcessingMessageStanza>
+{
+
+public:
+
+  static constexpr const char* TAG = "procmsg";
 
   using ProtoStanza::ProtoStanza;
 

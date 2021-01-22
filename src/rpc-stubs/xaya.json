@@ -1,0 +1,82 @@
+[
+  {
+    "name": "getnewaddress",
+    "params": [],
+    "returns": "foo"
+  },
+
+  {
+    "name": "name_show",
+    "params": ["p/domob"],
+    "returns": {}
+  },
+  {
+    "name": "gettxout",
+    "params": ["txid", 42],
+    "returns": {}
+  },
+  {
+    "name": "getblockheader",
+    "params": ["hash"],
+    "returns": {}
+  },
+
+  {
+    "name": "decodepsbt",
+    "params": ["psbt"],
+    "returns": {}
+  },
+
+  {
+    "name": "walletcreatefundedpsbt",
+    "params": [["inputs"], ["outputs"], 42, {"options": true}],
+    "returns": {}
+  },
+  {
+    "name": "createpsbt",
+    "params": [["inputs"], ["outputs"]],
+    "returns": "psbt"
+  },
+  {
+    "name": "namepsbt",
+    "params": ["psbt", 42, {"op": "name_update"}],
+    "returns": {}
+  },
+  {
+    "name": "joinpsbts",
+    "params": [["psbt 1", "psbt 2"]],
+    "returns": "psbt"
+  },
+
+  {
+    "name": "walletprocesspsbt",
+    "params": ["psbt"],
+    "returns": {}
+  },
+  {
+    "name": "lockunspent",
+    "params": [false, ["outputs"]],
+    "returns": true
+  },
+  {
+    "name": "listlockunspent",
+    "params": [],
+    "returns": []
+  },
+
+  {
+    "name": "combinepsbt",
+    "params": [["psbts"]],
+    "returns": "psbt"
+  },
+  {
+    "name": "finalizepsbt",
+    "params": ["psbt"],
+    "returns": {}
+  },
+  {
+    "name": "sendrawtransaction",
+    "params": ["hex"],
+    "returns": "txid"
+  }
+]

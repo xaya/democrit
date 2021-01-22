@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -106,6 +106,29 @@ RpcServer::cancelorder (const int id)
   LOG (INFO) << "RPC method called: cancelorder " << id;
   daemon.CancelOrder (id);
   return Json::Value ();
+}
+
+Json::Value
+RpcServer::gettrades ()
+{
+  LOG (INFO) << "RPC method called: gettrades";
+  Json::Value res(Json::arrayValue);
+  for (const auto& t : daemon.GetTrades ())
+    res.append (ProtoToJson (t));
+  return res;
+}
+
+bool
+RpcServer::takeorder (const Json::Value& order, const int units)
+{
+  LOG (INFO) << "RPC method called: takeorder\n" << order << "\n" << units;
+
+  proto::Order o;
+  if (!ProtoFromJson (order, o))
+    throw jsonrpc::JsonRpcException (jsonrpc::Errors::ERROR_RPC_INVALID_PARAMS,
+                                     "invalid order");
+
+  return daemon.TakeOrder (o, units);
 }
 
 } // namespace democrit

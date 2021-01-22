@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,9 +18,11 @@
 
 #include "daemon.hpp"
 
+#include "mockxaya.hpp"
 #include "private/authenticator.hpp"
 #include "private/mucclient.hpp"
 #include "private/stanzas.hpp"
+#include "private/state.hpp"
 #include "testutils.hpp"
 
 #include <gflags/gflags.h>
@@ -35,8 +37,12 @@ namespace democrit
 DECLARE_string (democrit_xid_servers);
 DECLARE_int64 (democrit_order_timeout_ms);
 
+extern bool useLegacyXayaRpcInDaemon;
+
 namespace
 {
+
+using testing::ElementsAre;
 
 /** Order timeout used in tests.  */
 constexpr auto TIMEOUT = std::chrono::milliseconds (100);
@@ -54,6 +60,7 @@ class DaemonTests : public testing::Test
 protected:
 
   TestAssets assets;
+  TestEnvironment<MockXayaRpcServer> env;
 
   DaemonTests ()
   {
@@ -61,9 +68,13 @@ protected:
 
     const std::chrono::milliseconds timeoutMs(TIMEOUT);
     FLAGS_democrit_order_timeout_ms = timeoutMs.count ();
+
+    useLegacyXayaRpcInDaemon = false;
   }
 
 };
+
+} // anonymous namespace
 
 /**
  * Daemon instance that is based on a test XMPP account.
@@ -92,9 +103,12 @@ public:
   /**
    * Constructs the instance based on the n-th test account.
    */
-  explicit TestDaemon (const AssetSpec& spec, const unsigned n)
-    : Daemon(spec, GetTestAccount (n), GetTestJid (n).full (),
-             GetPassword (n), GetRoom ("room").full ())
+  explicit TestDaemon (const AssetSpec& spec,
+                       TestEnvironment<MockXayaRpcServer>& env,
+                       const unsigned n)
+    : Daemon(spec, GetTestAccount (n),
+             env.GetXayaEndpoint (), env.GetGspEndpoint (),
+             GetTestJid (n).full (), GetPassword (n), GetRoom ("room").full ())
   {
     CHECK (IsConnected ());
   }
@@ -109,7 +123,12 @@ public:
     AddOrder (ParseTextProto<proto::Order> (str));
   }
 
+  using Daemon::GetStateForTesting;
+
 };
+
+namespace
+{
 
 /**
  * MUC client to connect with a test account and broadcast orders directly.
@@ -144,10 +163,10 @@ public:
 
 /* ************************************************************************** */
 
-TEST_F (DaemonTests, Basic)
+TEST_F (DaemonTests, BasicOrderExchange)
 {
-  TestDaemon d1(assets, 0), d2(assets, 1);
-  auto d3 = std::make_unique<TestDaemon> (assets, 2);
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
+  auto d3 = std::make_unique<TestDaemon> (assets, env, 2);
 
   assets.SetBalance ("xmpptest1", "gold", 100);
   assets.InitialiseAccount ("xmpptest2");
@@ -212,7 +231,7 @@ TEST_F (DaemonTests, Basic)
 
 TEST_F (DaemonTests, WrongAccountSent)
 {
-  TestDaemon d(assets, 0);
+  TestDaemon d(assets, env, 0);
   DirectOrderSender sender(1);
 
   assets.InitialiseAccount ("xmpptest2");
@@ -235,7 +254,7 @@ TEST_F (DaemonTests, WrongAccountSent)
 
 TEST_F (DaemonTests, Timeout)
 {
-  TestDaemon d1(assets, 0), d2(assets, 1);
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
   DirectOrderSender sender(2);
 
   assets.SetBalance ("xmpptest1", "gold", 10);
@@ -268,7 +287,7 @@ TEST_F (DaemonTests, Timeout)
 
 TEST_F (DaemonTests, OrderValidation)
 {
-  TestDaemon d(assets, 0);
+  TestDaemon d(assets, env, 0);
   DirectOrderSender sender(1);
 
   // xmpptest1 is not (yet) initialised
@@ -351,6 +370,117 @@ TEST_F (DaemonTests, OrderValidation)
           }
       }
   )"));
+}
+
+TEST_F (DaemonTests, TradeMessages)
+{
+  /* In this test, we ensure that the integration for exchanging trade
+     messages (ProcessingMessage stanzas/protos) via XMPP is working.
+     For this, we take a sell order and let the seller send back the seller
+     data, but the buyer won't find the seller's name UTXO and thus not continue
+     building the transaction.  This is enough for the test, and already
+     checks that sending the initial message on taking an order,
+     receiving/processing this message and sending a reply work, which are
+     all the basic situations.  */
+
+  TestDaemon d1(assets, env, 0), d2(assets, env, 1);
+
+  assets.SetBalance ("xmpptest1", "gold", 100);
+  assets.InitialiseAccount ("xmpptest2");
+
+  d1.AddFromText (R"(
+    asset: "gold"
+    type: ASK
+    price_sat: 1
+    max_units: 10
+  )");
+
+  SleepSome ();
+  ASSERT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
+    asset: "gold"
+    asks: { account: "xmpptest1" id: 0 price_sat: 1 max_units: 10 }
+  )"));
+
+  const std::string order = R"(
+    account: "xmpptest1"
+    id: 0
+    asset: "gold"
+    type: ASK
+    price_sat: 1
+    max_units: 10
+  )";
+  ASSERT_TRUE (d2.TakeOrder (ParseTextProto<proto::Order> (order), 1));
+  SleepSome ();
+
+  /* The order should have been locked temporarily.  */
+  EXPECT_THAT (d2.GetOrdersForAsset ("gold"), EqualsOrdersForAsset (R"(
+    asset: "gold"
+  )"));
+
+  /* The start_time will be filled in with real time, which we cannot predict
+     for the test.  Thus manually fake it.  */
+  d1.GetStateForTesting ().AccessState ([&order] (proto::State& s)
+    {
+      ASSERT_EQ (s.trades_size (), 1);
+      auto& t = *s.mutable_trades (0);
+      t.set_start_time (123);
+      EXPECT_THAT (t, EqualsTradeState (R"(
+        state: INITIATED
+        start_time: 123
+        order: { )" + order + R"(}
+        units: 1
+        counterparty: "xmpptest2"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+            name_output: { hash: "xmpptest1 txid" n: 12 }
+          }
+      )"));
+    });
+  d2.GetStateForTesting ().AccessState ([&order] (proto::State& s)
+    {
+      ASSERT_EQ (s.trades_size (), 1);
+      auto& t = *s.mutable_trades (0);
+      t.set_start_time (123);
+      EXPECT_THAT (t, EqualsTradeState (R"(
+        state: INITIATED
+        start_time: 123
+        order: { )" + order + R"(}
+        units: 1
+        counterparty: "xmpptest1"
+        seller_data:
+          {
+            name_address: "addr 1"
+            chi_address: "addr 2"
+          }
+      )"));
+    });
+
+  EXPECT_THAT (d1.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "xmpptest2"
+      role: MAKER
+      type: ASK
+      asset: "gold"
+      units: 1
+      price_sat: 1
+    )")
+  ));
+  EXPECT_THAT (d2.GetTrades (), ElementsAre (
+    EqualsTrade (R"(
+      state: INITIATED
+      start_time: 123
+      counterparty: "xmpptest1"
+      role: TAKER
+      type: BID
+      asset: "gold"
+      units: 1
+      price_sat: 1
+    )")
+  ));
 }
 
 /* ************************************************************************** */

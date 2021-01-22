@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -86,6 +86,14 @@ TEST_F (StanzasTests, AccountOrdersStanza)
         key: 102
         value: { asset: "gold" type: ASK price_sat: 20 }
       }
+  )");
+}
+
+TEST_F (StanzasTests, ProcessingMessageStanza)
+{
+  ProtoStanzaRoundtrip<ProcessingMessageStanza> (R"(
+    identifier: "me\n42"
+    psbt: { psbt: "abc" }
   )");
 }
 

@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,9 +23,13 @@
 #include "private/mucclient.hpp"
 #include "private/myorders.hpp"
 #include "private/orderbook.hpp"
+#include "private/rpcclient.hpp"
 #include "private/stanzas.hpp"
 #include "private/state.hpp"
-#include "proto/orders.pb.h"
+#include "private/trades.hpp"
+#include "proto/processing.pb.h"
+#include "rpc-stubs/demgsprpcclient.h"
+#include "rpc-stubs/xayarpcclient.h"
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -39,6 +43,13 @@ DEFINE_int64 (democrit_order_timeout_ms, 10 * 60 * 1'000,
               "Timeout (in milliseconds) of orders when not refreshed");
 DEFINE_int64 (democrit_reconnect_ms, 10 * 1'000,
               "Interval (in milliseconds) for trying to reconnect to XMPP");
+
+/**
+ * Whether or not we should use the "legacy" V1 protocol for the Xaya
+ * RPC client.  The real Xaya Core needs it, but in unit tests against our
+ * mock server we want to disable this.
+ */
+bool useLegacyXayaRpcInDaemon = true;
 
 /* ************************************************************************** */
 
@@ -89,6 +100,15 @@ private:
   /** General orderbook that we know of.  */
   OrderBook allOrders;
 
+  /** RPC connection to the Xaya wallet.  */
+  RpcClient<XayaRpcClient> xayaRpc;
+
+  /** RPC connection to the g/dem GSP.  */
+  RpcClient<DemGspRpcClient> demGsp;
+
+  /** Handler for active trades.  */
+  TradeManager trades;
+
   /** Interval job for checking the connection and perhaps reconnecting.  */
   std::unique_ptr<IntervalJob> reconnecter;
 
@@ -98,6 +118,12 @@ private:
    */
   bool ValidateOrder (const std::string& account, const proto::Order& o) const;
 
+  /**
+   * Sends a ProcessingMessage via XMPP to the counterparty specified in
+   * the message.
+   */
+  void SendProcessingMessage (proto::ProcessingMessage&& msg);
+
   friend class Daemon;
   friend class MyOrdersImpl;
 
@@ -105,11 +131,14 @@ protected:
 
   void HandleMessage (const gloox::JID& sender,
                       const gloox::Stanza& msg) override;
+  void HandlePrivate (const gloox::JID& sender,
+                      const gloox::Stanza& msg) override;
   void HandleDisconnect (const gloox::JID& disconnected) override;
 
 public:
 
   explicit Impl (const AssetSpec& s, const std::string& account,
+                 const std::string& xr, const std::string& dg,
                  const std::string& jid, const std::string& password,
                  const std::string& mucRoom);
 
@@ -154,12 +183,15 @@ Daemon::MyOrdersImpl::UpdateOrders (const proto::OrdersOfAccount& ownOrders)
 }
 
 Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
+                    const std::string& xr, const std::string& dg,
                     const std::string& jid, const std::string& password,
                     const std::string& mucRoom)
   : MucClient (gloox::JID (jid), password, gloox::JID (mucRoom)),
     spec(s), state(account),
     myOrders(*this),
-    allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms))
+    allOrders(std::chrono::milliseconds (FLAGS_democrit_order_timeout_ms)),
+    xayaRpc(xr, useLegacyXayaRpcInDaemon), demGsp(dg),
+    trades(state, myOrders, spec, xayaRpc, demGsp, true)
 {
   std::string jidAccount;
   CHECK (auth.Authenticate (gloox::JID (jid), jidAccount))
@@ -168,6 +200,7 @@ Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
       << "Our JID " << jid << " does not match claimed account " << account;
 
   RegisterExtension (std::make_unique<AccountOrdersStanza> ());
+  RegisterExtension (std::make_unique<ProcessingMessageStanza> ());
 
   /* We do periodic reconnects (later), but also a synchronous connect right now
      to make sure the daemon is connected on startup.  */
@@ -217,6 +250,26 @@ Daemon::Impl::ValidateOrder (const std::string& account,
 }
 
 void
+Daemon::Impl::SendProcessingMessage (proto::ProcessingMessage&& msg)
+{
+  gloox::JID receiver;
+  if (!auth.LookupJid (msg.counterparty (), receiver))
+    {
+      LOG (ERROR) << "Failed to lookup JID for account " << msg.counterparty ();
+      return;
+    }
+
+  msg.clear_counterparty ();
+  MucClient::ExtensionData ext;
+  ext.push_back (std::make_unique<ProcessingMessageStanza> (msg));
+
+  VLOG (1)
+      << "Sending processing message to " << receiver.full () << ":\n"
+      << msg.DebugString ();
+  SendMessage (receiver, std::move (ext));
+}
+
+void
 Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
 {
   std::string account;
@@ -246,6 +299,30 @@ Daemon::Impl::HandleMessage (const gloox::JID& sender, const gloox::Stanza& msg)
 }
 
 void
+Daemon::Impl::HandlePrivate (const gloox::JID& sender, const gloox::Stanza& msg)
+{
+  std::string account;
+  if (!auth.Authenticate (sender, account))
+    {
+      LOG (WARNING) << "Failed to get account for JID " << sender.full ();
+      return;
+    }
+
+  const auto* pmExt
+      = msg.findExtension<ProcessingMessageStanza> (
+          ProcessingMessageStanza::EXT_TYPE);
+  if (pmExt != nullptr && pmExt->IsValid ())
+    {
+      proto::ProcessingMessage msg = pmExt->GetData ();
+      msg.set_counterparty (account);
+
+      proto::ProcessingMessage reply;
+      if (trades.ProcessMessage (msg, reply))
+        SendProcessingMessage (std::move (reply));
+    }
+}
+
+void
 Daemon::Impl::HandleDisconnect (const gloox::JID& disconnected)
 {
   std::string account;
@@ -264,12 +341,20 @@ Daemon::Impl::HandleDisconnect (const gloox::JID& disconnected)
 /* ************************************************************************** */
 
 Daemon::Daemon (const AssetSpec& spec, const std::string& account,
+                const std::string& xayaRpc, const std::string& demGsp,
                 const std::string& jid, const std::string& password,
                 const std::string& mucRoom)
-  : impl(std::make_unique<Impl> (spec, account, jid, password, mucRoom))
+  : impl(std::make_unique<Impl> (spec, account, xayaRpc, demGsp,
+                                 jid, password, mucRoom))
 {}
 
 Daemon::~Daemon () = default;
+
+State&
+Daemon::GetStateForTesting ()
+{
+  return impl->state;
+}
 
 proto::OrderbookForAsset
 Daemon::GetOrdersForAsset (const Asset& asset) const
@@ -299,6 +384,23 @@ proto::OrdersOfAccount
 Daemon::GetOwnOrders () const
 {
   return impl->myOrders.GetOrders ();
+}
+
+std::vector<proto::Trade>
+Daemon::GetTrades () const
+{
+  return impl->trades.GetTrades ();
+}
+
+bool
+Daemon::TakeOrder (const proto::Order& o, const Amount units)
+{
+  proto::ProcessingMessage msg;
+  if (!impl->trades.TakeOrder (o, units, msg))
+    return false;
+
+  impl->SendProcessingMessage (std::move (msg));
+  return true;
 }
 
 std::string

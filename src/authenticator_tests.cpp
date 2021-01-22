@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -66,6 +66,15 @@ protected:
     ASSERT_TRUE (auth->Authenticate (gloox::JID (jid), decoded))
         << "Expected to be valid: " << jid;
     EXPECT_EQ (decoded, expected);
+  }
+
+  /**
+   * Exposes the authenticator instance to tests.
+   */
+  const Authenticator&
+  GetAuth () const
+  {
+    return *auth;
   }
 
 };
@@ -139,6 +148,24 @@ TEST_F (AuthenticatorTests, HexEncodedNames)
   ExpectValid ("x-782d666f6f@server", "x-foo");
   ExpectValid ("x-c3a4c3b6c3bc@server", u8"äöü");
   ExpectValid ("x-466f6f20426172@server", "Foo Bar");
+}
+
+TEST_F (AuthenticatorTests, LookupJid)
+{
+  SetServers ("server1,server2");
+
+  gloox::JID jid;
+  EXPECT_FALSE (GetAuth ().LookupJid ("domob", jid));
+  EXPECT_FALSE (GetAuth ().LookupJid (u8"äöü", jid));
+
+  ExpectValid ("domob@server1/foo", "domob");
+  ExpectValid ("x-c3a4c3b6c3bc@server2/bar", u8"äöü");
+
+  ASSERT_TRUE (GetAuth ().LookupJid ("domob", jid));
+  EXPECT_EQ (jid, "domob@server1/foo");
+  ASSERT_TRUE (GetAuth ().LookupJid (u8"äöü", jid));
+  EXPECT_EQ (jid, "x-c3a4c3b6c3bc@server2/bar");
+  ASSERT_FALSE (GetAuth ().LookupJid ("abc", jid));
 }
 
 } // anonymous namespace

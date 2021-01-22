@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -175,7 +175,23 @@ Authenticator::Authenticate (const gloox::JID& jid, std::string& account) const
   if (xidServers.count (jid.server ()) == 0)
     return false;
 
-  return DecodeName (jid.username (), account);
+  if (!DecodeName (jid.username (), account))
+    return false;
+
+  VLOG (1) << "JID for account " << account << ": " << jid.full ();
+  knownJids[account] = jid;
+  return true;
+}
+
+bool
+Authenticator::LookupJid (const std::string& account, gloox::JID& jid) const
+{
+  const auto mit = knownJids.find (account);
+  if (mit == knownJids.end ())
+    return false;
+
+  jid = mit->second;
+  return true;
 }
 
 } // namespace democrit

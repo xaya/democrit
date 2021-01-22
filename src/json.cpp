@@ -19,6 +19,7 @@
 #include "json.hpp"
 
 #include "proto/orders.pb.h"
+#include "proto/trades.pb.h"
 
 #include <glog/logging.h>
 
@@ -40,6 +41,23 @@ Json::Value
 IntToJson (const int64_t val)
 {
   return static_cast<Json::Int64> (val);
+}
+
+/**
+ * Converts an order type enum value to a JSON value (string).
+ */
+Json::Value
+OrderTypeToJson (const proto::Order::Type t)
+{
+  switch (t)
+    {
+    case proto::Order::ASK:
+      return "ask";
+    case proto::Order::BID:
+      return "bid";
+    default:
+      LOG (FATAL) << "Invalid order type: " << t;
+    }
 }
 
 } // anonymous namespace
@@ -68,17 +86,7 @@ template <>
   res["price_sat"] = IntToJson (pb.price_sat ());
 
   if (pb.has_type ())
-    switch (pb.type ())
-      {
-      case proto::Order::ASK:
-        res["type"] = "ask";
-        break;
-      case proto::Order::BID:
-        res["type"] = "bid";
-        break;
-      default:
-        LOG (FATAL) << "Invalid order type: " << static_cast<int> (pb.type ());
-      }
+    res["type"] = OrderTypeToJson (pb.type ());
 
   if (pb.locked ())
     res["locked"] = true;
@@ -216,6 +224,54 @@ template <>
       Json::Value cur = ProtoToJson (entry.second);
       cur["asset"] = entry.first;
       res[entry.first] = cur;
+    }
+
+  return res;
+}
+
+template <>
+  Json::Value
+  ProtoToJson<proto::Trade> (const proto::Trade& pb)
+{
+  Json::Value res(Json::objectValue);
+  res["start_time"] = IntToJson (pb.start_time ());
+  res["counterparty"] = pb.counterparty ();
+  res["type"] = OrderTypeToJson (pb.type ());
+  res["asset"] = pb.asset ();
+  res["units"] = IntToJson (pb.units ());
+  res["price_sat"] = IntToJson (pb.price_sat ());
+
+  switch (pb.state ())
+    {
+    case proto::Trade::INITIATED:
+      res["state"] = "initiated";
+      break;
+    case proto::Trade::PENDING:
+      res["state"] = "pending";
+      break;
+    case proto::Trade::SUCCESS:
+      res["state"] = "success";
+      break;
+    case proto::Trade::FAILED:
+      res["state"] = "failed";
+      break;
+    case proto::Trade::ABANDONED:
+      res["state"] = "abandoned";
+      break;
+    default:
+      LOG (FATAL) << "Unexpected state: " << pb.state ();
+    }
+
+  switch (pb.role ())
+    {
+    case proto::Trade::MAKER:
+      res["role"] = "maker";
+      break;
+    case proto::Trade::TAKER:
+      res["role"] = "taker";
+      break;
+    default:
+      LOG (FATAL) << "Unexpected role: " << pb.role ();
     }
 
   return res;

@@ -19,6 +19,7 @@
 syntax = "proto2";
 
 import "orders.proto";
+import "trades.proto";
 
 package democrit.proto;
 
@@ -43,5 +44,11 @@ message State
      timepoints with it, and it is ephemeral in nature in general anyway
      (i.e. when restarting the Democrit process, it should be received
      again fresh rather than restored from a previous save).  */
+
+  /** The list of active trades involving us.  */
+  repeated TradeState trades = 4;
+
+  /** Archived trades (abandoned / succeeded / failed).  */
+  repeated Trade trade_archive = 5;
 
 }

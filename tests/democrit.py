@@ -1,5 +1,5 @@
 #   Democrit - atomic trades for XAYA games
-#   Copyright (C) 2020  Autonomous Worlds Ltd
+#   Copyright (C) 2020-2021  Autonomous Worlds Ltd
 #
 #   This program is free software: you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -29,6 +29,9 @@ import time
 # so we can easily test timeout behaviour.
 ORDER_TIMEOUT = 0.1
 
+# Trade timeout (also the trade refresh interval) used in tests.
+TRADE_TIMEOUT = 0.1
+
 
 class Daemon:
   """
@@ -37,7 +40,7 @@ class Daemon:
   up afterwards.
   """
 
-  def __init__ (self, basedir, binary, port, gspRpcUrl,
+  def __init__ (self, basedir, binary, port, gspRpcUrl, xayaRpcUrl, demGspUrl,
                 account, jid, password, room, extraArgs=[]):
     """
     Constructs the manager, which will run the Democrit binary located
@@ -48,7 +51,9 @@ class Daemon:
 
     self.args = [binary]
     self.args.extend (["--rpc_port", str (port)])
-    self.args.extend (["--gsp_rpc_url", gspRpcUrl]);
+    self.args.extend (["--gsp_rpc_url", gspRpcUrl])
+    self.args.extend (["--xaya_rpc_url", xayaRpcUrl])
+    self.args.extend (["--dem_rpc_url", demGspUrl])
     self.args.extend (["--account", account])
     self.args.extend (["--jid", jid])
     self.args.extend (["--password", password])
@@ -56,6 +61,9 @@ class Daemon:
     self.args.extend (["--democrit_xid_servers", "localhost"])
     self.args.extend (["--democrit_order_timeout_ms",
                        str (int (ORDER_TIMEOUT * 1_000))])
+    self.args.extend (["--democrit_confirmations", str (10)])
+    self.args.extend (["--democrit_trade_timeout_ms",
+                       str (int (TRADE_TIMEOUT * 1_000))])
     self.args.extend (extraArgs)
 
     self.account = account
@@ -116,3 +124,18 @@ class Daemon:
       order["min_units"] = minUnits
 
     return self.rpc.addorder (order=order)
+
+  def getTrades (self):
+    """
+    Returns the list of trades as per the gettrades RPC method.  It strips
+    out the start_time fields, since those cannot be directly compared to
+    golden data.
+    """
+
+    data = self.rpc.gettrades ()
+
+    for d in data:
+      assert "start_time" in d
+      del d["start_time"]
+
+    return data

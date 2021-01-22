@@ -1,0 +1,7 @@
+[
+  {
+    "name": "checktrade",
+    "params": ["btxid"],
+    "returns": {}
+  }
+]
