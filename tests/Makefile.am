@@ -3,6 +3,7 @@ REGTESTS = \
   orderbook.py \
   orderrefresh.py \
   trading_asset_spent.py \
+  trading_onewallet.py \
   trading_success.py
 
 SCRIPTTESTS = \
