@@ -2,6 +2,7 @@ REGTESTS = \
   getstatus.py \
   orderbook.py \
   orderrefresh.py \
+  trading_asset_spent.py \
   trading_success.py
 
 SCRIPTTESTS = \
