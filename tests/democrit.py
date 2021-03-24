@@ -18,6 +18,7 @@
 Python wrappers for running Democrit daemons for integration testing.
 """
 
+import copy
 import jsonrpclib
 import logging
 import os
@@ -66,6 +67,8 @@ class Daemon:
                        str (int (TRADE_TIMEOUT * 1_000))])
     self.args.extend (extraArgs)
 
+    self.cafile = None
+
     self.account = account
     self.basedir = basedir
     self.rpcurl = "http://localhost:%d" % port
@@ -79,7 +82,11 @@ class Daemon:
     envVars = dict (os.environ)
     envVars["GLOG_log_dir"] = self.basedir
 
-    self.proc = subprocess.Popen (self.args, env=envVars)
+    args = copy.deepcopy (self.args)
+    if self.cafile is not None:
+      args.extend (["--cafile", self.cafile])
+
+    self.proc = subprocess.Popen (args, env=envVars)
     self.rpc = self.createRpc ()
 
     while True:

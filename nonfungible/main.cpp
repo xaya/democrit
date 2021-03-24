@@ -55,6 +55,8 @@ DEFINE_string (account, "",
                "Xaya account name (without p/) of the local user");
 DEFINE_string (jid, "", "JID for logging into the XMPP server");
 DEFINE_string (password, "", "password for logging into XMPP");
+DEFINE_string (cafile, "",
+               "if set, use this file as CA trust root of the system default");
 
 DEFINE_string (room, "democrit-nf@muc.chat.xaya.io",
                "XMPP room for the order exchange");
@@ -218,6 +220,8 @@ main (int argc, char** argv)
       democrit::Daemon daemon(spec, FLAGS_account,
                               FLAGS_xaya_rpc_url, FLAGS_dem_rpc_url,
                               FLAGS_jid, FLAGS_password, FLAGS_room);
+      if (!FLAGS_cafile.empty ())
+        daemon.SetRootCA (FLAGS_cafile);
       daemon.Connect ();
 
       jsonrpc::HttpServer httpServer(FLAGS_rpc_port);

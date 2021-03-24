@@ -1,3 +1,6 @@
+AM_TESTS_ENVIRONMENT = \
+  CHARON_PREFIX=$(CHARON_PREFIX)
+
 REGTESTS = \
   getstatus.py \
   orderbook.py \

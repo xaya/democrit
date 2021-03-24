@@ -110,6 +110,7 @@ public:
              env.GetXayaEndpoint (), env.GetGspEndpoint (),
              GetTestJid (n).full (), GetPassword (n), GetRoom ("room").full ())
   {
+    SetRootCA (GetTestCA ());
     Connect ();
     CHECK (IsConnected ());
   }
@@ -144,6 +145,7 @@ public:
   explicit DirectOrderSender (const unsigned n)
     : MucClient(GetTestJid (n), GetPassword (n), GetRoom ("room"))
   {
+    SetRootCA (GetTestCA ());
     Connect ();
   }
 

@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -201,6 +201,11 @@ public:
                       const gloox::JID& rm);
 
   virtual ~MucClient ();
+
+  /**
+   * Sets the trusted root certificate for the XMPP server connection.
+   */
+  void SetRootCA (const std::string& path);
 
   /**
    * Tries to connect to the XMPP server and join the room.  Returns true

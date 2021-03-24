@@ -125,14 +125,16 @@ class NonFungibleTest (XayaGameTest):
 
       xayaUrl, xaya = self.xayanode.getWalletRpc (wallet)
 
-      with democrit.Daemon (basedir, binary, port, self.gamenode.rpcurl,
-                            xayaUrl, self.demGsp.rpcurl,
-                            account, jid, accountConfig[1],
-                            XMPP_CONFIG["room"]) as d:
-        # For convenience (e.g. to send CHI to the daemon's wallet), we store
-        # an RPC handle for the selected wallet inside the instance.
-        d.xaya = xaya
-        yield d
+      d = democrit.Daemon (basedir, binary, port, self.gamenode.rpcurl,
+                           xayaUrl, self.demGsp.rpcurl,
+                           account, jid, accountConfig[1],
+                           XMPP_CONFIG["room"])
+      d.cafile = self.getTestCaFile ()
+      # For convenience (e.g. to send CHI to the daemon's wallet), we store
+      # an RPC handle for the selected wallet inside the instance.
+      d.xaya = xaya
+      with d as entered:
+        yield entered
     finally:
       self.accountInUse[accountIndex] = False
       if xaya:
@@ -179,6 +181,16 @@ class NonFungibleTest (XayaGameTest):
       top_builddir = ".."
 
     return os.path.join (top_builddir, *components)
+
+  def getTestCaFile (self):
+    """
+    Returns the CA file that we should use for the connection to the
+    test XMPP server (Charon's local environment).
+    """
+
+    charon = os.getenv ("CHARON_PREFIX")
+    assert charon is not None, "CHARON_PREFIX must be set"
+    return os.path.join (charon, "share", "charon", "testenv.pem")
 
   def expectApproxBalance (self, xaya, expected):
     """
