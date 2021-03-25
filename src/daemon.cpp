@@ -201,17 +201,6 @@ Daemon::Impl::Impl (const AssetSpec& s, const std::string& account,
 
   RegisterExtension (std::make_unique<AccountOrdersStanza> ());
   RegisterExtension (std::make_unique<ProcessingMessageStanza> ());
-
-  /* We do periodic reconnects (later), but also a synchronous connect right now
-     to make sure the daemon is connected on startup.  */
-  Connect ();
-
-  const std::chrono::milliseconds reconnectIntv(FLAGS_democrit_reconnect_ms);
-  reconnecter = std::make_unique<IntervalJob> (reconnectIntv, [&] ()
-    {
-      if (!IsConnected ())
-        Connect ();
-    });
 }
 
 bool
@@ -349,6 +338,28 @@ Daemon::Daemon (const AssetSpec& spec, const std::string& account,
 {}
 
 Daemon::~Daemon () = default;
+
+void
+Daemon::SetRootCA (const std::string& path)
+{
+  CHECK (impl->reconnecter == nullptr) << "Connect has been called already";
+  impl->SetRootCA (path);
+}
+
+void
+Daemon::Connect ()
+{
+  CHECK (impl->reconnecter == nullptr) << "Connect may only be called once";
+
+  impl->Connect ();
+
+  const std::chrono::milliseconds reconnectIntv(FLAGS_democrit_reconnect_ms);
+  impl->reconnecter = std::make_unique<IntervalJob> (reconnectIntv, [this] ()
+    {
+      if (!impl->IsConnected ())
+        impl->Connect ();
+    });
+}
 
 State&
 Daemon::GetStateForTesting ()

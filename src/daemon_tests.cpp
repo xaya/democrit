@@ -110,6 +110,7 @@ public:
              env.GetXayaEndpoint (), env.GetGspEndpoint (),
              GetTestJid (n).full (), GetPassword (n), GetRoom ("room").full ())
   {
+    Connect ();
     CHECK (IsConnected ());
   }
 

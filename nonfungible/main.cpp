@@ -218,6 +218,7 @@ main (int argc, char** argv)
       democrit::Daemon daemon(spec, FLAGS_account,
                               FLAGS_xaya_rpc_url, FLAGS_dem_rpc_url,
                               FLAGS_jid, FLAGS_password, FLAGS_room);
+      daemon.Connect ();
 
       jsonrpc::HttpServer httpServer(FLAGS_rpc_port);
       httpServer.BindLocalhost ();
