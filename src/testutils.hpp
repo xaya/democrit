@@ -82,6 +82,11 @@ struct ServerConfiguration
 const ServerConfiguration& GetServerConfig ();
 
 /**
+ * Returns the path to the trusted CA file for the test server.
+ */
+std::string GetTestCA ();
+
+/**
  * Returns the JID of the n-th test account from the selected server config.
  * Optinally adds a specified resource.
  */

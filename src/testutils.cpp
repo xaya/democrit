@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,12 +18,16 @@
 
 #include "testutils.hpp"
 
+#include <experimental/filesystem>
+
 #include <chrono>
 #include <sstream>
 #include <thread>
 
 namespace democrit
 {
+
+namespace fs = std::experimental::filesystem;
 
 namespace
 {
@@ -48,6 +52,15 @@ const ServerConfiguration&
 GetServerConfig ()
 {
   return LOCAL_SERVER;
+}
+
+std::string
+GetTestCA ()
+{
+#ifndef CHARON_PREFIX
+#error Charon installation prefix not defined
+#endif // CHARON_PREFIX
+  return fs::path (CHARON_PREFIX) / "share" / "charon" / "testenv.pem";
 }
 
 gloox::JID

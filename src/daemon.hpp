@@ -36,10 +36,6 @@ class State;
  * needed for it, like the underlying XMPP client connection, the processes
  * to listen to and update the order book and broadcast our own orders
  * regularly, and the handler of ongoing one-to-one trade negotiations.
- *
- * On construction, this instance immediately tries to connect to the
- * XMPP server, and keeps trying to reconnect regularly if it
- * gets disconnected.
  */
 class Daemon
 {
@@ -75,6 +71,19 @@ public:
   Daemon () = delete;
   Daemon (const Daemon&) = delete;
   void operator= (const Daemon&) = delete;
+
+  /**
+   * Sets the trusted root certificate for the XMPP server connection.
+   * This must be called before Connect.
+   */
+  void SetRootCA (const std::string& path);
+
+  /**
+   * Connects the instance to the XMPP server, and also starts a background
+   * thread that tries to reconnect it periodically.  The method itself
+   * does not block, but returns after the initial connection is established.
+   */
+  void Connect ();
 
   /**
    * Returns the known orderbook (not including our own orders) for

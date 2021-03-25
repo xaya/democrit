@@ -236,6 +236,7 @@ public:
                        const gloox::JID& rm)
     : MucClient(id, pwd, rm)
   {
+    SetRootCA (GetTestCA ());
     RegisterExtension (std::make_unique<TestExtension> ());
 
     /* By default, we do not care about mock calls to the disconnect
@@ -305,13 +306,13 @@ using MucConnectionTests = MucClientTests;
 
 TEST_F (MucConnectionTests, Works)
 {
-  MucClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  TestClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
   EXPECT_TRUE (client.Connect ());
 }
 
 TEST_F (MucConnectionTests, Reconnecting)
 {
-  MucClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  TestClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
 
   ASSERT_TRUE (client.Connect ());
   EXPECT_TRUE (client.IsConnected ());
@@ -325,13 +326,13 @@ TEST_F (MucConnectionTests, Reconnecting)
 
 TEST_F (MucConnectionTests, InvalidConnection)
 {
-  MucClient client(GetTestJid (0), "wrong password", GetRoom ("foo"));
+  TestClient client(GetTestJid (0), "wrong password", GetRoom ("foo"));
   EXPECT_FALSE (client.Connect ());
 }
 
 TEST_F (MucConnectionTests, InvalidRoom)
 {
-  MucClient client(GetTestJid (0), GetPassword (0), GetRoom ("invalid room"));
+  TestClient client(GetTestJid (0), GetPassword (0), GetRoom ("invalid room"));
   EXPECT_FALSE (client.Connect ());
 }
 
@@ -339,13 +340,13 @@ TEST_F (MucConnectionTests, MultipleParticipants)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient client1(GetTestJid (0), GetPassword (0), room);
+  TestClient client1(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (client1.Connect ());
 
-  MucClient client2(GetTestJid (1), GetPassword (1), room);
+  TestClient client2(GetTestJid (1), GetPassword (1), room);
   ASSERT_TRUE (client2.Connect ());
 
-  MucClient client3(GetTestJid (0), GetPassword (0), room);
+  TestClient client3(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (client3.Connect ());
 }
 
@@ -353,10 +354,10 @@ TEST_F (MucConnectionTests, KickedFromRoom)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient first(GetTestJid (0), GetPassword (0), room);
+  TestClient first(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (first.Connect ());
 
-  MucClient second(GetTestJid (1), GetPassword (1), room);
+  TestClient second(GetTestJid (1), GetPassword (1), room);
   ASSERT_TRUE (second.Connect ());
 
   SleepSome ();
@@ -378,11 +379,11 @@ TEST_F (MucClientNickMapTests, Works)
   const gloox::JID room = GetRoom ("foo");
 
   const auto firstJid = GetTestJid (0, "first");
-  MucClient first(firstJid, GetPassword (0), room);
+  TestClient first(firstJid, GetPassword (0), room);
   ASSERT_TRUE (first.Connect ());
 
   const auto secondJid = GetTestJid (1, "second");
-  MucClient second(secondJid, GetPassword (1), room);
+  TestClient second(secondJid, GetPassword (1), room);
   ASSERT_TRUE (second.Connect ());
 
   ExpectNickJid (first, AccessRoom (second).nick (), secondJid);
@@ -391,7 +392,7 @@ TEST_F (MucClientNickMapTests, Works)
 
 TEST_F (MucClientNickMapTests, UnknownNick)
 {
-  MucClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  TestClient client(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
   ASSERT_TRUE (client.Connect ());
 
   ExpectUnknownNick (client, "invalid");
@@ -402,10 +403,10 @@ TEST_F (MucClientNickMapTests, OtherRoom)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient first(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
+  TestClient first(GetTestJid (0), GetPassword (0), GetRoom ("foo"));
   ASSERT_TRUE (first.Connect ());
 
-  MucClient second(GetTestJid (1), GetPassword (1), GetRoom ("bar"));
+  TestClient second(GetTestJid (1), GetPassword (1), GetRoom ("bar"));
   ASSERT_TRUE (second.Connect ());
 
   ExpectUnknownNick (first, AccessRoom (second).nick ());
@@ -416,10 +417,10 @@ TEST_F (MucClientNickMapTests, SelfDisconnect)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient first(GetTestJid (0), GetPassword (0), room);
+  TestClient first(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (first.Connect ());
 
-  MucClient second(GetTestJid (1), GetPassword (1), room);
+  TestClient second(GetTestJid (1), GetPassword (1), room);
   ASSERT_TRUE (second.Connect ());
   const std::string secondNick = AccessRoom (second).nick ();
 
@@ -434,10 +435,10 @@ TEST_F (MucClientNickMapTests, PeerDisconnect)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient first(GetTestJid (0), GetPassword (0), room);
+  TestClient first(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (first.Connect ());
 
-  MucClient second(GetTestJid (1), GetPassword (1), room);
+  TestClient second(GetTestJid (1), GetPassword (1), room);
   ASSERT_TRUE (second.Connect ());
   const std::string secondNick = AccessRoom (second).nick ();
   second.Disconnect ();
@@ -449,11 +450,11 @@ TEST_F (MucClientNickMapTests, NickChange)
 {
   const gloox::JID room = GetRoom ("foo");
 
-  MucClient first(GetTestJid (0), GetPassword (0), room);
+  TestClient first(GetTestJid (0), GetPassword (0), room);
   ASSERT_TRUE (first.Connect ());
 
   const auto secondJid = GetTestJid (1, "second");
-  MucClient second(secondJid, GetPassword (1), room);
+  TestClient second(secondJid, GetPassword (1), room);
   ASSERT_TRUE (second.Connect ());
   const std::string secondNick = AccessRoom (second).nick ();
 
