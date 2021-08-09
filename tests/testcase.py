@@ -63,7 +63,7 @@ class NonFungibleTest (XayaGameTest):
     shutil.rmtree (base, ignore_errors=True)
     os.mkdir (base)
 
-    self.demGsp = game.Node (base, self.basePort + 10, [binary])
+    self.demGsp = game.Node (base, next (self.ports), [binary])
     self.demGsp.start (self.xayanode.rpcurl, wait=True)
 
   def shutdown (self):
@@ -115,7 +115,7 @@ class NonFungibleTest (XayaGameTest):
 
     try:
       self.accountInUse[accountIndex] = True
-      port = self.basePort + 11 + accountIndex
+      port = next (self.ports)
 
       accountConfig = XMPP_CONFIG["accounts"][accountIndex]
       account = accountConfig[0]
