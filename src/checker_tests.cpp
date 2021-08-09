@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -340,14 +340,14 @@ protected:
         "value": )" + chiValue.str () + R"(,
         "scriptPubKey":
           {
-            "addresses": ["chi addr"]
+            "address": "chi addr"
           }
       },
       {
         "value": 0.01000000,
         "scriptPubKey":
           {
-            "addresses": ["name addr"],
+            "address": "name addr",
             "nameOp":
               {
                 "op": "name_update",
@@ -416,7 +416,7 @@ TEST_F (TradeCheckerForSellerOutputsTests, ExtraOutputOk)
     "value": 10.0,
     "scriptPubKey":
       {
-        "addresses": ["change addr"]
+        "address": "change addr"
       }
   })"));
   EXPECT_TRUE (Check (checker, vouts));
@@ -436,8 +436,8 @@ TEST_F (TradeCheckerForSellerOutputsTests, ZeroTotalNeedsNoChiOutput)
 TEST_F (TradeCheckerForSellerOutputsTests, ChiAndNameSameAddress)
 {
   auto vouts = GetValidVout (checker);
-  vouts[0]["scriptPubKey"]["addresses"][0] = "addr";
-  vouts[1]["scriptPubKey"]["addresses"][0] = "addr";
+  vouts[0]["scriptPubKey"]["address"] = "addr";
+  vouts[1]["scriptPubKey"]["address"] = "addr";
 
   const auto sd = ParseTextProto<proto::SellerData> (R"(
     chi_address: "addr"
@@ -467,19 +467,21 @@ TEST_F (TradeCheckerForSellerOutputsTests, InvalidScriptPubKeyAddresses)
   EXPECT_FALSE (Check (checker, vouts));
 
   vouts = baseVouts;
-  vouts[0]["scriptPubKey"]["addresses"].append ("foo");
+  vouts[0]["scriptPubKey"]["address"] = 42;
   EXPECT_FALSE (Check (checker, vouts));
 
   vouts = baseVouts;
+  vouts[0]["scriptPubKey"] = Json::Value (Json::objectValue);
   vouts[0]["scriptPubKey"]["addresses"] = "chi addr";
   EXPECT_FALSE (Check (checker, vouts));
 
   vouts = baseVouts;
-  vouts[0]["scriptPubKey"]["addresses"] = 42;
-  EXPECT_FALSE (Check (checker, vouts));
-
-  vouts = baseVouts;
+  vouts[0]["scriptPubKey"] = Json::Value (Json::objectValue);
   vouts[0]["scriptPubKey"]["addresses"] = Json::Value (Json::arrayValue);
+  EXPECT_FALSE (Check (checker, vouts));
+  vouts[0]["scriptPubKey"]["addresses"].append ("chi addr");
+  EXPECT_TRUE (Check (checker, vouts));
+  vouts[0]["scriptPubKey"]["addresses"].append ("second addr");
   EXPECT_FALSE (Check (checker, vouts));
 }
 
@@ -494,7 +496,7 @@ TEST_F (TradeCheckerForSellerOutputsTests, ChiOutputMissing)
 TEST_F (TradeCheckerForSellerOutputsTests, ChiOutputWrongAddress)
 {
   auto vouts = GetValidVout (checker);
-  vouts[0]["scriptPubKey"]["addresses"][0] = "foo";
+  vouts[0]["scriptPubKey"]["address"] = "foo";
   EXPECT_FALSE (Check (checker, vouts));
 }
 
@@ -522,7 +524,7 @@ TEST_F (TradeCheckerForSellerOutputsTests, NameDoesNotCountForChi)
   const auto baseVouts = GetValidVout (checker);
   auto vouts = Json::Value (Json::arrayValue);
   vouts.append (baseVouts[1]);
-  vouts[0]["scriptPubKey"]["addresses"][0] = "addr";
+  vouts[0]["scriptPubKey"]["address"] = "addr";
   vouts[0]["value"] = 1.0;
 
   const auto sd = ParseTextProto<proto::SellerData> (R"(
@@ -544,7 +546,7 @@ TEST_F (TradeCheckerForSellerOutputsTests, NameOutputMissing)
 TEST_F (TradeCheckerForSellerOutputsTests, NameOutputWrongAddress)
 {
   auto vouts = GetValidVout (checker);
-  vouts[1]["scriptPubKey"]["addresses"][0] = "foo";
+  vouts[1]["scriptPubKey"]["address"] = "foo";
   EXPECT_FALSE (Check (checker, vouts));
 }
 

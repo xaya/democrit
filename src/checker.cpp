@@ -1,6 +1,6 @@
 /*
     Democrit - atomic trades for XAYA games
-    Copyright (C) 2020  Autonomous Worlds Ltd
+    Copyright (C) 2020-2021  Autonomous Worlds Ltd
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -284,14 +284,16 @@ MatchesAddress (const Json::Value& scriptPubKey, const std::string& addr)
   CHECK (scriptPubKey.isObject ());
 
   const auto& addresses = scriptPubKey["addresses"];
-  if (!addresses.isArray () || addresses.size () != 1)
-    return false;
+  if (addresses.isArray () && addresses.size () == 1
+        && addresses[0].isString ()
+        && addresses[0].asString () == addr)
+    return true;
 
-  const auto& addrVal = addresses[0];
-  if (!addrVal.isString () || addrVal.asString () != addr)
-    return false;
+  const auto& address = scriptPubKey["address"];
+  if (address.isString () && address.asString () == addr)
+    return true;
 
-  return true;
+  return false;
 }
 
 } // anonymous namespace
