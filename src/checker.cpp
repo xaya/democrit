@@ -343,8 +343,13 @@ TradeChecker::CheckForSellerOutputs (const std::string& psbt,
         {
           CHECK_EQ (nameOp["name_encoding"].asString (), "utf8")
               << "Xaya Core's -nameencoding should be set to \"utf8\"";
-          CHECK_EQ (nameOp["value_encoding"].asString (), "ascii")
-              << "Xaya Core's -valueencoding should be set to \"ascii\"";
+          CHECK_EQ (nameOp["value_encoding"].asString (), "utf8")
+              << "Xaya Core's -valueencoding should be set to \"utf8\"";
+
+          /* With UTF-8 chosen as encoding for name and value, there should
+             never be an encoding error as the blockchain consensus enforces
+             that names and values are valid UTF-8.  */
+          CHECK (nameOp.isMember ("name") && nameOp.isMember ("value"));
 
           if (nameOp["op"].asString () != "name_update")
             continue;

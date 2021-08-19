@@ -195,7 +195,7 @@ MockXayaRpcServer::PrepareConstructTransaction (
                       {
                         "op": "name_update",
                         "name_encoding": "utf8",
-                        "value_encoding": "ascii"
+                        "value_encoding": "utf8"
                       },
                     "addresses": ["dummy"]
                   }
